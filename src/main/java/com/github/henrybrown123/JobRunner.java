@@ -1,5 +1,7 @@
 package com.github.henrybrown123;
 
+import com.github.henrybrown123.shared.model.JobData;
+
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;

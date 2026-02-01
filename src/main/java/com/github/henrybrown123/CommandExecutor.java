@@ -1,18 +1,22 @@
 package com.github.henrybrown123;
 
+import com.github.henrybrown123.shared.model.JobData;
+import com.github.henrybrown123.shared.model.job.ExecutionType;
+import com.github.henrybrown123.shared.model.job.Interpreter;
+
 import java.io.IOException;
 import java.util.Map;
 
 public class CommandExecutor {
 
     // Map of interpreter-specific inline flags
-    private static final Map<JobData.Interpreter, String> INLINE_FLAGS = Map.of(
-            JobData.Interpreter.BASH, "-c",
-            JobData.Interpreter.PYTHON, "-c",
-            JobData.Interpreter.GROOVY, "-e"
+    private static final Map<Interpreter, String> INLINE_FLAGS = Map.of(
+            Interpreter.BASH, "-c",
+            Interpreter.PYTHON, "-c",
+            Interpreter.GROOVY, "-e"
     );
 
-    public static String[] buildCommand(JobData.Interpreter interpreter, String command, JobData.ExecutionType type) {
+    public static String[] buildCommand(Interpreter interpreter, String command, ExecutionType type) {
         String executable = interpreter.executable;
 
         return switch (type) {

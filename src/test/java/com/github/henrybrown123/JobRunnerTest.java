@@ -1,5 +1,6 @@
 package com.github.henrybrown123;
 
+import com.github.henrybrown123.shared.model.JobData;
 import org.junit.jupiter.api.Test;
 import org.testng.annotations.Ignore;
 

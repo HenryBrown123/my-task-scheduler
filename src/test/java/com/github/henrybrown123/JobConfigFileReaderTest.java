@@ -1,6 +1,15 @@
 package com.github.henrybrown123;
 
+import com.github.henrybrown123.shared.model.JobData;
+import com.github.henrybrown123.shared.model.job.ExecutionType;
+import com.github.henrybrown123.shared.model.job.Interpreter;
+import com.github.henrybrown123.shared.model.job.JobCommandData;
+import com.github.henrybrown123.shared.model.job.JobExecutionData;
+import com.github.henrybrown123.shared.model.job.JobMeta;
+import com.github.henrybrown123.shared.model.job.schedule.IJobScheduleData;
+import com.github.henrybrown123.shared.model.job.schedule.SimpleSchedule;
 import org.junit.jupiter.api.Test;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
@@ -38,7 +47,7 @@ class JobConfigFileReaderTest {
         );
 
         List<JobData> jobs = JobConfigFileReader.read(filePath);
-        JobData.JobMeta meta = jobs.getFirst().meta();
+        JobMeta meta = jobs.getFirst().meta();
 
         // Assert - Meta fields
         assertNotNull(meta, "Meta should not be null");
@@ -61,7 +70,7 @@ class JobConfigFileReaderTest {
         );
 
         List<JobData> jobs = JobConfigFileReader.read(filePath);
-        JobScheduleData schedule = jobs.getFirst().schedule();
+        IJobScheduleData schedule = jobs.getFirst().schedule();
         // Assert - Schedule type
         assertNotNull(schedule, "Schedule should not be null");
         assertInstanceOf(SimpleSchedule.class, schedule, "Schedule should be SimpleSchedule type");
@@ -97,14 +106,14 @@ class JobConfigFileReaderTest {
         );
 
         List<JobData> jobs = JobConfigFileReader.read(filePath);
-        JobData.JobCommandData command = jobs.getFirst().command();
+        JobCommandData command = jobs.getFirst().command();
 
         // Assert - Command fields
         assertNotNull(command, "Command should not be null");
-        assertEquals(JobData.ExecutionType.CMD, command.type(), "Type should be CMD");
+        assertEquals(ExecutionType.CMD, command.type(), "Type should be CMD");
         assertEquals("echo 'System health check passed' && exit 0", command.command(),
                 "Command text should match exactly");
-        assertEquals(JobData.Interpreter.BASH, command.interpreter(), "Interpreter should be BASH");
+        assertEquals(Interpreter.BASH, command.interpreter(), "Interpreter should be BASH");
     }
 
     @Test
@@ -117,7 +126,7 @@ class JobConfigFileReaderTest {
         );
 
         List<JobData> jobs = JobConfigFileReader.read(filePath);
-        JobData.JobExecutionData execution = jobs.getFirst().execution();
+        JobExecutionData execution = jobs.getFirst().execution();
 
         // Assert - Execution fields
         assertNotNull(execution, "Execution should not be null");
