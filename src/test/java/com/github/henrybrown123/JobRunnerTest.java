@@ -1,5 +1,7 @@
 package com.github.henrybrown123;
 
+import com.github.henrybrown123.configuration.ConfigLoader;
+import com.github.henrybrown123.execution.JobExecutor;
 import com.github.henrybrown123.shared.model.JobData;
 import org.junit.jupiter.api.Test;
 import org.testng.annotations.Ignore;
@@ -15,14 +17,14 @@ public class JobRunnerTest
     void shouldRunBashCmdJob() throws Exception {
         Path filePath = Paths.get(
                 Objects.requireNonNull(getClass().getClassLoader()
-                                .getResource("health_test.yaml"))
+                                .getResource("test_jobs.yaml"))
                         .toURI()
         );
 
-        List<JobData> jobs = JobConfigFileReader.read(filePath);
+        List<JobData> jobs = ConfigLoader.read(filePath);
 
-        JobRunner  jobRunner = new JobRunner(jobs);
-        jobRunner.runAllJobs();
+        JobExecutor jobExecutor = new JobExecutor(jobs);
+        jobExecutor.runAllJobs();
 
     }
 
