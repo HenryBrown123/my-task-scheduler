@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package jobscheduler;
+
+option java_multiple_files = true;
+option java_package = "com.github.henrybrown123.monitoring.grpc";
+option java_outer_classname = "JobSchedulerProto";
+
+// TODO: Define gRPC service and messages
