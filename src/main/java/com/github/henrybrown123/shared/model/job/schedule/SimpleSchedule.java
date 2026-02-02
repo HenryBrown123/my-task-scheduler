@@ -96,4 +96,23 @@ public record SimpleSchedule(
         }
         throw new IllegalArgumentException("Invalid interval format: " + interval);
     }
+
+    enum TimeUnitShort {
+        MINUTE("m"), HOUR("h"), DAY("d"),
+        WEEK("w"), MONTH("M"), YEAR("y");
+
+        private final String timeCode;
+
+        TimeUnitShort(String timeCode) {
+            this.timeCode = timeCode;
+        }
+
+        public String timeCode() {
+            return timeCode;
+        }
+
+        public String description() {
+            return timeCode + " - " + this.name();
+        }
+    }
 }
