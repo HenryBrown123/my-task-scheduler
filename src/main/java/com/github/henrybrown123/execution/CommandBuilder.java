@@ -1,15 +1,13 @@
 package com.github.henrybrown123.execution;
 
-import com.github.henrybrown123.shared.model.JobData;
-import com.github.henrybrown123.shared.model.job.ExecutionType;
-import com.github.henrybrown123.shared.model.job.Interpreter;
+import com.github.henrybrown123.model.job.execution.ExecutionType;
+import com.github.henrybrown123.model.job.Interpreter;
 
-import java.io.IOException;
 import java.util.Map;
 
-public class CommandExecutor {
+public class CommandBuilder {
 
-    // this is just a nice way of writing an immutable new HashMap<> .... (Map.of)
+    // notes: this is just a nice way of writing an immutable new HashMap<> .... (Map.of)
     private static final Map<Interpreter, String> INLINE_FLAGS = Map.of(
             Interpreter.BASH, "-c",
             Interpreter.PYTHON, "-c",
@@ -35,20 +33,4 @@ public class CommandExecutor {
         };
     }
 
-    /**
-     * Executes the relevant command using Java ProcessBulider.
-     * todo: allow the target server to be specified?
-     * @param job
-     * @return
-     * @throws IOException
-     */
-    public static Process execute(JobData job) throws IOException {
-        String[] command = buildCommand(
-                job.command().interpreter(),
-                job.command().command(),
-                job.command().type()
-        );
-
-        return new ProcessBuilder(command).start();
-    }
 }
