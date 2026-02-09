@@ -1,4 +1,6 @@
-package com.github.henrybrown123.shared.model.job;
+package com.github.henrybrown123.model.job;
+
+import com.github.henrybrown123.model.job.execution.ExecutionType;
 
 public record JobCommandData(
         String execute,

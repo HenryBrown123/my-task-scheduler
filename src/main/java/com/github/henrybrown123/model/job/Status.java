@@ -1,4 +1,4 @@
-package com.github.henrybrown123.shared.model.job;
+package com.github.henrybrown123.model.job;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;

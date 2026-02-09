@@ -1,8 +1,9 @@
-package com.github.henrybrown123.shared.model.job.schedule;
+package com.github.henrybrown123.model.job.schedule;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @JsonTypeInfo(
@@ -13,30 +14,35 @@ import java.time.LocalDateTime;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = SimpleSchedule.class, name = "simple"),
         @JsonSubTypes.Type(value = CronSchedule.class, name = "cron"),
-        @JsonSubTypes.Type(value = WeeklySchedule.class, name = "weekly"),
         @JsonSubTypes.Type(value = MonthlySchedule.class, name = "monthly"),
-        @JsonSubTypes.Type(value = YearlySchedule.class, name = "yearly")
 })
 public sealed interface IJobScheduleData permits
         SimpleSchedule,
         CronSchedule,
-        WeeklySchedule,
-        MonthlySchedule,
-        YearlySchedule {
+        MonthlySchedule {
 
-    boolean isDue(LocalDateTime lastExecution);
+    String type();
+    LocalDate startDate();
+    LocalDate endDate();
 
-    default boolean isWithinDateRange(LocalDateTime now, LocalDateTime start, LocalDateTime end) {
+    /**
+     * Returns the time when next due based on the current execution time.
+     *
+     * @param lastExecution
+     * @return
+     */
+    LocalDateTime getNextExecutionDate(LocalDateTime lastExecution);
+
+    default boolean isScheduleActive(LocalDateTime now, LocalDateTime start, LocalDateTime end) {
+        // Not started yet
         if (start != null && now.isBefore(start)) {
-            return true;
-        }
-        return end != null && now.isAfter(end);
-    }
-
-    default boolean hasRunInPeriod(LocalDateTime lastExecution, LocalDateTime periodStart) {
-        if (lastExecution == null) {
             return false;
         }
-        return lastExecution.isBefore(periodStart);
+        // Passed the end date
+        if (end != null && now.isAfter(end)) {
+            return false;
+        }
+
+        return true;
     }
 }

@@ -1,6 +1,7 @@
-package com.github.henrybrown123.shared.model.job;
+package com.github.henrybrown123.model.job.execution;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.github.henrybrown123.model.job.Status;
 
 import java.time.LocalDateTime;
 
@@ -10,4 +11,5 @@ public record JobExecutionData(
         @JsonProperty("end_date") LocalDateTime endDate,
         @JsonProperty("last_run_status") String lastRunStatus,
         LocalDateTime overdue
-) {}
+) {
+}

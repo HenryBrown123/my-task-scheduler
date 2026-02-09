@@ -1,4 +1,4 @@
-package com.github.henrybrown123.shared.model.job.schedule;
+package com.github.henrybrown123.model.job.schedule;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -15,6 +15,13 @@ public record SimpleSchedule(
         @JsonProperty("start_date") LocalDate startDate,
         @JsonProperty("end_date") LocalDate endDate
 ) implements IJobScheduleData {
+
+
+    @Override
+    @JsonProperty("type")
+    public String type() {
+        return "simple";
+    }
 
     public sealed interface ValidationResult {
         record Success() implements ValidationResult {}
@@ -56,36 +63,35 @@ public record SimpleSchedule(
     }
 
     @Override
-    public boolean isDue(LocalDateTime lastExecution) {
+    public LocalDateTime getNextExecutionDate(LocalDateTime lastExecutionStarted) {
         LocalDateTime now = LocalDateTime.now();
 
         LocalDateTime start = startDate != null ? startDate.atStartOfDay() : null;
         LocalDateTime end = endDate != null ? endDate.atTime(23, 59, 59) : null;
 
-        if (isWithinDateRange(now, start, end)) {
-            return false;
+        if (!isScheduleActive(now, start, end)) {
+            return null;
         }
 
-        if (lastExecution == null) {
-            return true;
+        if (lastExecutionStarted == null) {
+            return now;
         }
 
-        long intervalMillis = parseIntervalToMillis(interval);
-        Duration timeSinceLastRun = Duration.between(lastExecution, now);
+        Duration intervalSeconds = parseIntervalToSeconds(interval);
 
-        return timeSinceLastRun.toMillis() >= intervalMillis;
+        return lastExecutionStarted.plus(intervalSeconds);
     }
 
-    private long parseIntervalToMillis(String interval) {
+    private Duration parseIntervalToSeconds(String interval) {
         Pattern pattern = Pattern.compile("(\\d+)([a-z])");
         Matcher matcher = pattern.matcher(interval);
 
         if (matcher.matches()) {
             int value = Integer.parseInt(matcher.group(1));
-            String timeCode = matcher.group(2);
+            var timeCode = matcher.group(2);
 
-            return switch (timeCode) {
-                case "m" -> value * 60 * 1000L;
+            var seconds =  switch (timeCode) {
+                case "m" -> (long) value * 60;
                 case "h" -> value * 60 * 60 * 1000L;
                 case "d" -> value * 24 * 60 * 60 * 1000L;
                 case "w" -> value * 7 * 24 * 60 * 60 * 1000L;
@@ -93,6 +99,8 @@ public record SimpleSchedule(
                 case "y" -> value * 365L * 24 * 60 * 60 * 1000L;
                 default -> throw new IllegalArgumentException("Unknown time code: " + timeCode);
             };
+
+            return Duration.ofSeconds(seconds);
         }
         throw new IllegalArgumentException("Invalid interval format: " + interval);
     }

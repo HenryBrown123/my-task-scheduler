@@ -1,4 +1,4 @@
-package com.github.henrybrown123.shared.model.job;
+package com.github.henrybrown123.model.job;
 
 import java.util.List;
 
