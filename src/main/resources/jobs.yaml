@@ -1,2 +1,18 @@
 jobs:
-  # TODO: Add job configurations
+  - meta:
+      id: health-check-test
+      name: "System Health Check"
+      description: "Quick health check with status echo"
+      priority: medium
+      tags:
+        - monitoring
+        - health
+    schedule:
+      type: simple
+      interval: 1m
+      start_date: "2025-01-15"
+      end_date: null
+    command:
+      type: cmd
+      command: "echo 'Hello, world! Its me, ya bro!' && exit 0"
+      interpreter: bash

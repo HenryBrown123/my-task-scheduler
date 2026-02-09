@@ -2,6 +2,11 @@ target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+
+## Data
+/data/*
+
+
 .kotlin
 
 ### IntelliJ IDEA ###
@@ -41,3 +46,4 @@ build/
 ### Local scripts ###
 commits.sh
 domain.excalidraw
+data/jobs.db
