@@ -1,4 +1,4 @@
-package com.github.henrybrown123.shared.model.job.schedule;
+package com.github.henrybrown123.model.job.schedule;
 
 import org.junit.jupiter.api.Test;
 

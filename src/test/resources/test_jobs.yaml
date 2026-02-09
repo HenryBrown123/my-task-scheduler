@@ -16,5 +16,3 @@ jobs:
         type: cmd
         command: "echo 'System health check passed' && exit 0"
         interpreter: bash
-    execution:
-        status: active
