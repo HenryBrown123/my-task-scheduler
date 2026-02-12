@@ -7,9 +7,10 @@ import com.github.henrybrown123.model.job.schedule.IJobScheduleData;
 
 
 /**
- * ConfigFile record containing data in the config file... follows the same
+ * ConfigFile record representing data in the config file... follows the same
  * structure to allow Jackson to map it. Currently, model objects contain @json_property
  * annotations to allow Jackson to map to the right field in the config file where names differ.
+ * <p>
  * If this becomes too hard to manage, then the same structure could be duplicated here with a
  * proper mapping interface instead of leaking Jackson config into the model layer.
  *
