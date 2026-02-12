@@ -7,9 +7,9 @@ import java.time.LocalDateTime;
 
 public record JobExecutionData(
         Status status,
-        @JsonProperty("last_execution") LocalDateTime lastExecution,
-        @JsonProperty("end_date") LocalDateTime endDate,
-        @JsonProperty("last_run_status") String lastRunStatus,
+        LocalDateTime lastExecution,
+        LocalDateTime endDate,
+        String lastRunStatus,
         LocalDateTime overdue
 ) {
 }

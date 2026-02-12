@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS config_files(
 );
 
 -- Job definitions table, loaded from config file
+-- TODO: may want to think about whether we make this a history table... if we want config versioning then we should
 CREATE TABLE IF NOT EXISTS jobs (
                                     id TEXT PRIMARY KEY,
                                     name TEXT NOT NULL,
