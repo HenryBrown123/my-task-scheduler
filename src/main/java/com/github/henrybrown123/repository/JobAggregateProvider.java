@@ -5,9 +5,9 @@ import com.github.henrybrown123.model.job.*;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
 import com.github.henrybrown123.model.job.execution.JobExecutionData;
 
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public class JobAggregateProvider {
     private final JobRepository jobRepo;
@@ -20,39 +20,23 @@ public class JobAggregateProvider {
         this.execRepo = execRepo;
     }
 
-    public JobData getJob(String jobId) throws SQLException {
-        var jobRecord = jobRepo.findById(jobId);
-        if (jobRecord == null) {
-            return null;
-        }
-
-        return buildJobData(jobRecord);
+    public Optional<JobData> getJob(String jobId) {
+        return jobRepo.findById(jobId).map(this::buildJobData);
     }
 
-    public List<JobData> getAllJobs() throws SQLException {
-        List<JobRepository.JobRecord> jobRecords = jobRepo.findAll();
-        List<JobData> jobs = new ArrayList<>();
-
-        for (var record : jobRecords) {
-            jobs.add(buildJobData(record));
-        }
-
-        return jobs;
+    public List<JobData> getAllJobs() {
+        return jobRepo.findAll().stream()
+                .map(this::buildJobData)
+                .toList();
     }
 
-    public List<JobData> getActiveJobs() throws SQLException {
-        List<JobRepository.JobRecord> jobRecords = jobRepo.findByStatus("ACTIVE");
-        List<JobData> jobs = new ArrayList<>();
-
-        for (var record : jobRecords) {
-            jobs.add(buildJobData(record));
-        }
-
-        return jobs;
+    public List<JobData> getActiveJobs() {
+        return jobRepo.findByStatus("ACTIVE").stream()
+                .map(this::buildJobData)
+                .toList();
     }
 
-    public void saveJob(JobData job) throws SQLException {
-        // Save to jobs table
+    public void saveJob(JobData job) {
         var jobRecord = new JobRepository.JobRecord(
                 job.meta().id(),
                 job.meta().name(),
@@ -68,13 +52,16 @@ public class JobAggregateProvider {
                 job.schedule().endDate() != null ? job.schedule().endDate().toString() : null
         );
         jobRepo.save(jobRecord);
-
-        // Save schedule
         scheduleRepo.save(job.meta().id(), job.schedule());
     }
 
-    private JobData buildJobData(JobRepository.JobRecord record) throws SQLException {
-        // Build meta
+    /**
+     * Returns JobData from an input job record, looking up additional supplementary information
+     * such as schedule details and execution history.
+     * @param record
+     * @return
+     */
+    private JobData buildJobData(JobRepository.JobRecord record) {
         JobMeta meta = new JobMeta(
                 record.id(),
                 record.name(),
@@ -83,7 +70,6 @@ public class JobAggregateProvider {
                 record.tags()
         );
 
-        // Build command
         JobCommandData command = new JobCommandData(
                 record.command(),
                 ExecutionType.valueOf(record.commandType()),
@@ -91,23 +77,21 @@ public class JobAggregateProvider {
                 Interpreter.valueOf(record.interpreter())
         );
 
-        // Load schedule
         var schedule = scheduleRepo.findByJobId(
                 record.id(),
                 record.scheduleType(),
                 record.startDate(),
                 record.endDate()
-        );
+        ).orElse(null);
 
-        // Load execution data
-        var execSummary = execRepo.getLastExecution(record.id());
-        var execution = new JobExecutionData(
-                Status.valueOf(record.status()),
-                execSummary != null ? execSummary.lastExecution() : null,
-                execSummary != null ? execSummary.endTime() : null,
-                execSummary != null ? execSummary.status() : null,
-                null
-        );
+        var execution = execRepo.getLastExecution(record.id())
+                .map(summary -> new JobExecutionData(
+                        Status.valueOf(record.status()),
+                        summary.lastExecution(),
+                        summary.endTime(),
+                        summary.status(),
+                        null
+                )).orElse(null);
 
         return new JobData(meta, command, schedule, execution);
     }

@@ -4,6 +4,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 public class JobRepository {
     private final Connection conn;
@@ -12,7 +13,7 @@ public class JobRepository {
         this.conn = conn;
     }
 
-    public void save(JobRecord job) throws SQLException {
+    public void save(JobRecord job) {
         String sql = """
             INSERT INTO jobs (id, name, description, priority, tags, 
                              schedule_type, command_type, command, interpreter, status,
@@ -47,10 +48,12 @@ public class JobRepository {
             stmt.setString(11, job.startDate());
             stmt.setString(12, job.endDate());
             stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to save job: " + job.id(), e);
         }
     }
 
-    public JobRecord findById(String jobId) throws SQLException {
+    public Optional<JobRecord> findById(String jobId) {
         String sql = "SELECT * FROM jobs WHERE id = ?";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -58,14 +61,16 @@ public class JobRepository {
             ResultSet rs = stmt.executeQuery();
 
             if (!rs.next()) {
-                return null;
+                return Optional.empty();
             }
 
-            return mapToJobRecord(rs);
+            return Optional.of(mapToJobRecord(rs));
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to find job: " + jobId, e);
         }
     }
 
-    public List<JobRecord> findAll() throws SQLException {
+    public List<JobRecord> findAll() {
         String sql = "SELECT * FROM jobs ORDER BY name";
         List<JobRecord> jobs = new ArrayList<>();
 
@@ -75,12 +80,14 @@ public class JobRepository {
             while (rs.next()) {
                 jobs.add(mapToJobRecord(rs));
             }
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to fetch all jobs", e);
         }
 
         return jobs;
     }
 
-    public List<JobRecord> findByStatus(String status) throws SQLException {
+    public List<JobRecord> findByStatus(String status) {
         String sql = "SELECT * FROM jobs WHERE status = ? ORDER BY name";
         List<JobRecord> jobs = new ArrayList<>();
 
@@ -91,17 +98,21 @@ public class JobRepository {
             while (rs.next()) {
                 jobs.add(mapToJobRecord(rs));
             }
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to find jobs by status: " + status, e);
         }
 
         return jobs;
     }
 
-    public void delete(String jobId) throws SQLException {
+    public void delete(String jobId) {
         String sql = "DELETE FROM jobs WHERE id = ?";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
             stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to delete job: " + jobId, e);
         }
     }
 
