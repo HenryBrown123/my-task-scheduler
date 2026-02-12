@@ -3,11 +3,8 @@ package com.github.henrybrown123.execution;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.ExecutionRepository;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.sql.SQLException;
 import java.util.concurrent.TimeUnit;
 
 public class JobExecutor {
@@ -17,6 +14,12 @@ public class JobExecutor {
     public JobExecutor(ExecutionRepository executionRepository) {
         this.executionRepository = executionRepository;
     }
+
+    public record RuntimeContext(
+            long executionId,
+            String stdoutFile,
+            String stderrFile
+    ) {}
 
     private sealed interface JobRunResult {
         record Success(long executionId) implements JobRunResult {}
@@ -39,77 +42,64 @@ public class JobExecutor {
     }
 
     private JobRunResult executeJob(JobData job) {
-        ExecutionRepository.ExecutionContext ctx = null;
+        RuntimeContext ctx = startExecution(job);
 
         try {
-            ctx = executionRepository.startExecution(job.meta().id(), "job-executor");
-
-            String[] command = CommandBuilder.buildCommand(
-                    job.command().interpreter(),
-                    job.command().command(),
-                    job.command().type()
-            );
-
-            ProcessBuilder pb = new ProcessBuilder(command);
-
-            File stdOut = new File(ctx.stdoutFile());
-            File stdErr = new File(ctx.stderrFile());
-
-            pb.redirectOutput(stdOut);
-            pb.redirectError(stdErr);
-
-            System.out.println("[DEBUG] Starting process...");
-            Process process = pb.start();
-
-            System.out.println("[DEBUG] Waiting for process...");
-            boolean finished = process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            System.out.println("[DEBUG] Process finished: " + finished);
-
-            if (!finished) {
-                process.destroyForcibly();
-                process.waitFor();
-                executionRepository.completeExecution(ctx.executionId(), "timeout", -1);
-                return new JobRunResult.Timeout(ctx.executionId());
-            }
-
-            int exitCode = process.exitValue();
-            System.out.println("[DEBUG] Exit code: " + exitCode);
-
-            // Check file immediately after process exits
-            File f = new File(ctx.stdoutFile());
-            System.out.println("[DEBUG] File exists: " + f.exists());
-            System.out.println("[DEBUG] File size: " + f.length());
-
-            String status = exitCode == 0 ? "complete" : "failed";
-
-
-            executionRepository.completeExecution(ctx.executionId(), status, exitCode);
-
-            return exitCode == 0
-                    ? new JobRunResult.Success(ctx.executionId())
-                    : new JobRunResult.Failure("Exit code " + exitCode, ctx.executionId());
-
+            Process process = startProcess(job, ctx);
+            return waitAndHandleResult(process, ctx);
         } catch (IOException e) {
-            if (ctx != null) {
-                try {
-                    executionRepository.completeExecution(ctx.executionId(), "failed", -1);
-                } catch (SQLException ignored) {}
-            }
-            return new JobRunResult.Failure("IO Error: " + e.getMessage(),
-                    ctx != null ? ctx.executionId() : -1);
-
+            completeExecution(ctx, "failed", -1);
+            return new JobRunResult.Failure("IO Error: " + e.getMessage(), ctx.executionId());
         } catch (InterruptedException e) {
-            if (ctx != null) {
-                try {
-                    executionRepository.completeExecution(ctx.executionId(), "cancelled", -1);
-                } catch (SQLException ignored) {}
-            }
+            completeExecution(ctx, "cancelled", -1);
             Thread.currentThread().interrupt();
-            return new JobRunResult.Failure("Interrupted: " + e.getMessage(),
-                    ctx != null ? ctx.executionId() : -1);
-
-        } catch (SQLException e) {
-            throw new RuntimeException("Database error during job execution", e);
+            return new JobRunResult.Failure("Interrupted: " + e.getMessage(), ctx.executionId());
         }
+    }
+
+    private RuntimeContext startExecution(JobData job) {
+        var repoCtx = executionRepository.startExecution(job.meta().id(), "job-executor");
+        return new RuntimeContext(
+                repoCtx.executionId(),
+                repoCtx.stdoutFile(),
+                repoCtx.stderrFile()
+        );
+    }
+
+    private Process startProcess(JobData job, RuntimeContext ctx) throws IOException {
+        String[] command = CommandBuilder.buildCommand(
+                job.command().interpreter(),
+                job.command().command(),
+                job.command().type()
+        );
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectOutput(new File(ctx.stdoutFile()));
+        pb.redirectError(new File(ctx.stderrFile()));
+
+        return pb.start();
+    }
+
+    private JobRunResult waitAndHandleResult(Process process, RuntimeContext ctx) throws InterruptedException {
+        boolean finished = process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        if (!finished) {
+            process.destroyForcibly();
+            process.waitFor();
+            completeExecution(ctx, "timeout", -1);
+            return new JobRunResult.Timeout(ctx.executionId());
+        }
+
+        int exitCode = process.exitValue();
+        String status = exitCode == 0 ? "complete" : "failed";
+        completeExecution(ctx, status, exitCode);
+
+        return exitCode == 0
+                ? new JobRunResult.Success(ctx.executionId())
+                : new JobRunResult.Failure("Exit code " + exitCode, ctx.executionId());
+    }
+
+    private void completeExecution(RuntimeContext ctx, String status, int exitCode) {
+        executionRepository.completeExecution(ctx.executionId(), status, exitCode);
     }
 }
