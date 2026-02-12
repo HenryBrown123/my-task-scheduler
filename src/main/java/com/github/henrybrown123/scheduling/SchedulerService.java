@@ -1,6 +1,7 @@
 package com.github.henrybrown123.scheduling;
 
 import com.github.henrybrown123.configuration.ConfigLoader;
+import com.github.henrybrown123.configuration.InvalidConfigException;
 import com.github.henrybrown123.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.JobAggregateProvider;
@@ -46,6 +47,7 @@ public class SchedulerService {
                 // reads in "fresh" and updates the database with any changes...
                 jobConfigLoader.loadAndSync();
 
+
                 List<JobData> allJobs = jobAggregateProvider.getActiveJobs();
 
                 List<JobData> dueJobs = allJobs.stream()
@@ -68,16 +70,7 @@ public class SchedulerService {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
-            } catch (SQLException e) {
-                System.err.println("Database error in scheduler: " + e.getMessage());
-                e.printStackTrace();
-                try {
-                    Thread.sleep(10000); // Wait longer after error
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            } catch (IOException e) {
+            } catch (InvalidConfigException e) {
                 throw new RuntimeException(e);
             }
         }
