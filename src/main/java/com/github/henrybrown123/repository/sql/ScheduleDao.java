@@ -12,10 +12,10 @@ import java.util.Optional;
  * Data access for schedule tables. Each schedule type has its own table
  * with type-specific fields.
  */
-public class ScheduleRepository {
+public class ScheduleDao {
     private final Connection conn;
 
-    public ScheduleRepository(Connection conn) {
+    public ScheduleDao(Connection conn) {
         this.conn = conn;
     }
 

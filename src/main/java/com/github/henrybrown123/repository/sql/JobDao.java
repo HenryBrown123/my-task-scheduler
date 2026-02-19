@@ -13,10 +13,10 @@ import com.github.henrybrown123.repository.RepositoryException;
  * Data access for the jobs table. Pure CRUD — no domain logic.
  * Maps to/from {@link JobRecord} which mirrors the table schema.
  */
-public class JobRepository {
+public class JobDao {
     private final Connection conn;
 
-    public JobRepository(Connection conn) {
+    public JobDao(Connection conn) {
         this.conn = conn;
     }
 
@@ -91,6 +91,10 @@ public class JobRepository {
         }
 
         return jobs;
+    }
+
+    public List<JobRecord> findAllActiveJobs() {
+        return findByStatus("active");
     }
 
     public List<JobRecord> findByStatus(String status) {

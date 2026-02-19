@@ -1,4 +1,4 @@
-package com.github.henrybrown123.database;
+package com.github.henrybrown123.repository.sql;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

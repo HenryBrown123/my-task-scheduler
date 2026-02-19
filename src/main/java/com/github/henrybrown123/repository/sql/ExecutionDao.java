@@ -15,10 +15,10 @@ import com.github.henrybrown123.repository.RepositoryException;
  * Data access for the job_executions table. Tracks execution history,
  * status, and log file locations.
  */
-public class ExecutionRepository {
+public class ExecutionDao {
     private final Connection conn;
 
-    public ExecutionRepository(Connection conn) {
+    public ExecutionDao(Connection conn) {
         this.conn = conn;
     }
 

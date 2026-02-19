@@ -5,7 +5,12 @@ import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.model.job.Interpreter;
 import com.github.henrybrown123.model.job.JobMeta;
 import com.github.henrybrown123.model.job.command.JobCommandData;
+import com.github.henrybrown123.model.job.command.JobCredential;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
+import com.github.henrybrown123.repository.sql.CredentialDao;
+import com.github.henrybrown123.repository.sql.ExecutionDao;
+import com.github.henrybrown123.repository.sql.JobDao;
+import com.github.henrybrown123.repository.sql.ScheduleDao;
 
 import java.util.List;
 import java.util.Optional;
@@ -19,15 +24,17 @@ import java.util.stream.Collectors;
  * <p>Repositories handle raw data access (SQL + records).
  * This class handles domain logic: mapping, enrichment, sync.
  */
-public class JobAggregate {
-    private final JobRepository jobRepo;
-    private final ScheduleRepository scheduleRepo;
-    private final ExecutionRepository execRepo;
+public class JobDataRepository {
+    private final JobDao jobRepo;
+    private final ScheduleDao scheduleRepo;
+    private final ExecutionDao execRepo;
+    private final CredentialDao credentialDao;
 
-    public JobAggregate(JobRepository jobRepo, ScheduleRepository scheduleRepo, ExecutionRepository execRepo) {
+    public JobDataRepository(JobDao jobRepo, ScheduleDao scheduleRepo, ExecutionDao execRepo, CredentialDao credentialDao) {
         this.jobRepo = jobRepo;
         this.scheduleRepo = scheduleRepo;
         this.execRepo = execRepo;
+        this.credentialDao = credentialDao;
     }
 
     /**
@@ -55,23 +62,30 @@ public class JobAggregate {
      * @param config the job config to save
      */
     public void save(JobConfig config) {
-        jobRepo.save(toRecord(config));
+        jobRepo.save(toJobRecord(config));
         scheduleRepo.save(config.meta().id(), config.schedule());
+        config.command().credentials().forEach(cred ->
+                credentialDao.save(config.meta().id(), cred));
     }
 
+    /**
+     * Retrieves a single job by ID, enriched with schedule and execution data.
+     *
+     * @param jobId the job identifier
+     * @return the enriched job data, or empty if not found
+     */
     public Optional<JobData> get(String jobId) {
         return jobRepo.findById(jobId)
                 .map(this::toJobData);
     }
 
+    /**
+     * Retrieves all jobs, enriched with schedule and execution data.
+     *
+     * @return all jobs
+     */
     public List<JobData> getAll() {
-        return jobRepo.findAll().stream()
-                .map(this::toJobData)
-                .toList();
-    }
-
-    public List<JobData> getActive() {
-        return jobRepo.findByStatus("active").stream()
+        return jobRepo.findAllActiveJobs().stream()
                 .map(this::toJobData)
                 .toList();
     }
@@ -80,7 +94,7 @@ public class JobAggregate {
      * Maps a persistence record to a domain object, enriching
      * with schedule details and last execution data.
      */
-    private JobData toJobData(JobRepository.JobRecord record) {
+    private JobData toJobData(JobDao.JobRecord record) {
         JobMeta meta = new JobMeta(
                 record.id(),
                 record.name(),
@@ -89,12 +103,13 @@ public class JobAggregate {
                 record.tags()
         );
 
+        var credentials = credentialDao.findByJobId(record.id());
+
         JobCommandData command = new JobCommandData(
-                null,
                 ExecutionType.valueOf(record.commandType().toUpperCase()),
                 record.command(),
                 Interpreter.valueOf(record.interpreter().toUpperCase()),
-                List.of()
+                credentials
         );
 
         var schedule = scheduleRepo.findByJobId(
@@ -113,8 +128,8 @@ public class JobAggregate {
     /**
      * Maps a job config to a persistence record for the jobs table.
      */
-    private JobRepository.JobRecord toRecord(JobConfig config) {
-        return new JobRepository.JobRecord(
+    private JobDao.JobRecord toJobRecord(JobConfig config) {
+        return new JobDao.JobRecord(
                 config.meta().id(),
                 config.meta().name(),
                 config.meta().description(),
