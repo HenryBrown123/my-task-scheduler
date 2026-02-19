@@ -1,12 +1,17 @@
-package com.github.henrybrown123.repository;
+package com.github.henrybrown123.repository.sql;
 
 import com.github.henrybrown123.model.job.schedule.*;
+import com.github.henrybrown123.repository.RepositoryException;
 
 import java.sql.*;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Optional;
 
+/**
+ * Data access for schedule tables. Each schedule type has its own table
+ * with type-specific fields.
+ */
 public class ScheduleRepository {
     private final Connection conn;
 
@@ -54,12 +59,13 @@ public class ScheduleRepository {
         }
     }
 
-    public Optional<IJobScheduleData> findByJobId(String jobId, String scheduleType, String startDate, String endDate) {
+    public Optional<IJobScheduleData> findByJobId(String jobId, String scheduleType, LocalDate startDate, LocalDate endDate) {
         return switch (scheduleType) {
             case "simple" -> findSimpleSchedule(jobId, startDate, endDate).map(s -> s);
             case "monthly" -> findMonthlySchedule(jobId, startDate, endDate).map(s -> s);
             case "cron" -> findCronSchedule(jobId, startDate, endDate).map(s -> s);
-            default -> throw new RepositoryException("Failed to find schedule to to invalid schedule type: " + scheduleType, new IllegalArgumentException());
+            default -> throw new RepositoryException(
+                    "Invalid schedule type: " + scheduleType, new IllegalArgumentException());
         };
     }
 
@@ -76,7 +82,7 @@ public class ScheduleRepository {
         }
     }
 
-    private Optional<SimpleSchedule> findSimpleSchedule(String jobId, String startDate, String endDate) {
+    private Optional<SimpleSchedule> findSimpleSchedule(String jobId, LocalDate startDate, LocalDate endDate) {
         String sql = "SELECT * FROM schedule_simple WHERE job_id = ?";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -89,15 +95,15 @@ public class ScheduleRepository {
 
             return Optional.of(new SimpleSchedule(
                     rs.getString("interval"),
-                    startDate != null ? LocalDate.parse(startDate) : null,
-                    endDate != null ? LocalDate.parse(endDate) : null
+                    startDate,
+                    endDate
             ));
         } catch (SQLException e) {
             throw new RepositoryException("Failed to find simple schedule for job: " + jobId, e);
         }
     }
 
-    private Optional<MonthlySchedule> findMonthlySchedule(String jobId, String startDate, String endDate) {
+    private Optional<MonthlySchedule> findMonthlySchedule(String jobId, LocalDate startDate, LocalDate endDate) {
         String sql = "SELECT * FROM schedule_monthly WHERE job_id = ?";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -111,15 +117,15 @@ public class ScheduleRepository {
             return Optional.of(new MonthlySchedule(
                     rs.getInt("day_of_month"),
                     LocalTime.parse(rs.getString("time")),
-                    startDate != null ? LocalDate.parse(startDate) : null,
-                    endDate != null ? LocalDate.parse(endDate) : null
+                    startDate,
+                    endDate
             ));
         } catch (SQLException e) {
             throw new RepositoryException("Failed to find monthly schedule for job: " + jobId, e);
         }
     }
 
-    private Optional<CronSchedule> findCronSchedule(String jobId, String startDate, String endDate) {
+    private Optional<CronSchedule> findCronSchedule(String jobId, LocalDate startDate, LocalDate endDate) {
         String sql = "SELECT * FROM schedule_cron WHERE job_id = ?";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -132,8 +138,8 @@ public class ScheduleRepository {
 
             return Optional.of(new CronSchedule(
                     rs.getString("expression"),
-                    startDate != null ? LocalDate.parse(startDate) : null,
-                    endDate != null ? LocalDate.parse(endDate) : null
+                    startDate,
+                    endDate
             ));
         } catch (SQLException e) {
             throw new RepositoryException("Failed to find cron schedule for job: " + jobId, e);

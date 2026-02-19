@@ -1,11 +1,18 @@
-package com.github.henrybrown123.repository;
+package com.github.henrybrown123.repository.sql;
 
 import java.sql.*;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+import com.github.henrybrown123.repository.RepositoryException;
+
+/**
+ * Data access for the jobs table. Pure CRUD — no domain logic.
+ * Maps to/from {@link JobRecord} which mirrors the table schema.
+ */
 public class JobRepository {
     private final Connection conn;
 
@@ -15,7 +22,7 @@ public class JobRepository {
 
     public void save(JobRecord job) {
         String sql = """
-            INSERT INTO jobs (id, name, description, priority, tags, 
+            INSERT INTO jobs (id, name, description, priority, tags,
                              schedule_type, command_type, command, interpreter, status,
                              start_date, end_date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -45,8 +52,8 @@ public class JobRepository {
             stmt.setString(8, job.command());
             stmt.setString(9, job.interpreter());
             stmt.setString(10, job.status());
-            stmt.setString(11, job.startDate());
-            stmt.setString(12, job.endDate());
+            stmt.setString(11, SqliteDataType.text(job.startDate()));
+            stmt.setString(12, SqliteDataType.text(job.endDate()));
             stmt.executeUpdate();
         } catch (SQLException e) {
             throw new RepositoryException("Failed to save job: " + job.id(), e);
@@ -64,7 +71,7 @@ public class JobRepository {
                 return Optional.empty();
             }
 
-            return Optional.of(mapToJobRecord(rs));
+            return Optional.of(mapToRecord(rs));
         } catch (SQLException e) {
             throw new RepositoryException("Failed to find job: " + jobId, e);
         }
@@ -76,9 +83,8 @@ public class JobRepository {
 
         try (Statement stmt = conn.createStatement()) {
             ResultSet rs = stmt.executeQuery(sql);
-
             while (rs.next()) {
-                jobs.add(mapToJobRecord(rs));
+                jobs.add(mapToRecord(rs));
             }
         } catch (SQLException e) {
             throw new RepositoryException("Failed to fetch all jobs", e);
@@ -94,15 +100,41 @@ public class JobRepository {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, status);
             ResultSet rs = stmt.executeQuery();
-
             while (rs.next()) {
-                jobs.add(mapToJobRecord(rs));
+                jobs.add(mapToRecord(rs));
             }
         } catch (SQLException e) {
             throw new RepositoryException("Failed to find jobs by status: " + status, e);
         }
 
         return jobs;
+    }
+
+    public List<String> findAllIds() {
+        String sql = "SELECT id FROM jobs WHERE status = 'active'";
+        List<String> ids = new ArrayList<>();
+
+        try (Statement stmt = conn.createStatement()) {
+            ResultSet rs = stmt.executeQuery(sql);
+            while (rs.next()) {
+                ids.add(rs.getString("id"));
+            }
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to fetch job IDs", e);
+        }
+
+        return ids;
+    }
+
+    public void deactivate(String jobId) {
+        String sql = "UPDATE jobs SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, jobId);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to deactivate job: " + jobId, e);
+        }
     }
 
     public void delete(String jobId) {
@@ -116,7 +148,7 @@ public class JobRepository {
         }
     }
 
-    private JobRecord mapToJobRecord(ResultSet rs) throws SQLException {
+    private JobRecord mapToRecord(ResultSet rs) throws SQLException {
         String tagsStr = rs.getString("tags");
         List<String> tags = tagsStr != null && !tagsStr.isEmpty()
                 ? Arrays.asList(tagsStr.split(","))
@@ -133,8 +165,8 @@ public class JobRepository {
                 rs.getString("command"),
                 rs.getString("interpreter"),
                 rs.getString("status"),
-                rs.getString("start_date"),
-                rs.getString("end_date")
+                SqliteDataType.toLocalDate(rs.getString("start_date")),
+                SqliteDataType.toLocalDate(rs.getString("end_date"))
         );
     }
 
@@ -149,7 +181,7 @@ public class JobRepository {
             String command,
             String interpreter,
             String status,
-            String startDate,
-            String endDate
+            LocalDate startDate,
+            LocalDate endDate
     ) {}
 }

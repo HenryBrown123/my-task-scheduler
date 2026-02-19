@@ -1,51 +1,32 @@
-package com.github.henrybrown123.repository;
+package com.github.henrybrown123.repository.sql;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import com.github.henrybrown123.model.job.Status;
+import com.github.henrybrown123.model.job.execution.JobExecutionData;
+
 import java.sql.*;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-public class ExecutionRepository {
-    // todo: add to config file
-    private static final String LOGS_DIR = "data/logs";
-    private static final DateTimeFormatter FILE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+import com.github.henrybrown123.repository.RepositoryException;
 
+/**
+ * Data access for the job_executions table. Tracks execution history,
+ * status, and log file locations.
+ */
+public class ExecutionRepository {
     private final Connection conn;
 
     public ExecutionRepository(Connection conn) {
         this.conn = conn;
-        ensureLogsDirectory();
     }
 
-    private void ensureLogsDirectory() {
-        try {
-            Files.createDirectories(Paths.get(LOGS_DIR));
-        } catch (IOException e) {
-            throw new RepositoryException("Failed to create logs directory", e);
-        }
-    }
-
-    public ExecutionContext startExecution(String jobId, String triggeredBy) {
+    public synchronized long createExecutionRecord(String jobId, String triggeredBy, String stdoutFile, String stderrFile) {
         String sql = """
             INSERT INTO job_executions (job_id, start_time, status, triggered_by, stdout_file, stderr_file)
             VALUES (?, datetime('now'), 'running', ?, ?, ?)
             """;
-
-        String timestamp = LocalDateTime.now().format(FILE_DATE_FORMAT);
-        String stdoutFile = String.format("%s/%s_%s_stdout.log", LOGS_DIR, jobId, timestamp);
-        String stderrFile = String.format("%s/%s_%s_stderr.log", LOGS_DIR, jobId, timestamp);
-
-        try {
-            Files.createFile(Paths.get(stdoutFile));
-            Files.createFile(Paths.get(stderrFile));
-        } catch (IOException e) {
-            throw new RepositoryException("Failed to create log files for job: " + jobId, e);
-        }
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
@@ -57,8 +38,7 @@ public class ExecutionRepository {
             try (Statement idStmt = conn.createStatement()) {
                 ResultSet rs = idStmt.executeQuery("SELECT last_insert_rowid()");
                 if (rs.next()) {
-                    long executionId = rs.getLong(1);
-                    return new ExecutionContext(executionId, stdoutFile, stderrFile);
+                    return rs.getLong(1);
                 }
                 throw new RepositoryException("Failed to get execution ID for job: " + jobId, null);
             }
@@ -67,7 +47,7 @@ public class ExecutionRepository {
         }
     }
 
-    public void completeExecution(long executionId, String status, int exitCode) {
+    public synchronized void setExecutionAsCompleted(long executionId, String status, int exitCode) {
         String sql = """
             UPDATE job_executions
             SET status = ?,
@@ -87,9 +67,9 @@ public class ExecutionRepository {
         }
     }
 
-    public Optional<ExecutionSummary> getLastExecution(String jobId) {
+    public synchronized Optional<JobExecutionData> getLastExecution(String jobId) {
         String sql = """
-            SELECT start_time, end_time, status, exit_code
+            SELECT id, start_time, end_time, status, exit_code, stdout_file, stderr_file
             FROM job_executions
             WHERE job_id = ?
             ORDER BY start_time DESC
@@ -104,21 +84,22 @@ public class ExecutionRepository {
                 return Optional.empty();
             }
 
-            Timestamp startTs = rs.getTimestamp("start_time");
-            Timestamp endTs = rs.getTimestamp("end_time");
-
-            return Optional.of(new ExecutionSummary(
-                    startTs != null ? startTs.toLocalDateTime() : null,
-                    endTs != null ? endTs.toLocalDateTime() : null,
+            return Optional.of(new JobExecutionData(
+                    rs.getLong("id"),
+                    Status.fromString(rs.getString("status")),
+                    SqliteDataType.toLocalDateTime(rs.getTimestamp("start_time")),
+                    SqliteDataType.toLocalDateTime(rs.getTimestamp("end_time")),
                     rs.getString("status"),
-                    rs.getInt("exit_code")
+                    rs.getString("stdout_file"),
+                    rs.getString("stderr_file"),
+                    null
             ));
         } catch (SQLException e) {
             throw new RepositoryException("Failed to get last execution for job: " + jobId, e);
         }
     }
 
-    public List<ExecutionRecord> getHistory(String jobId, int limit) {
+    public synchronized List<ExecutionRecord> getHistory(String jobId, int limit) {
         String sql = """
             SELECT *
             FROM job_executions
@@ -137,8 +118,8 @@ public class ExecutionRepository {
                 executions.add(new ExecutionRecord(
                         rs.getLong("id"),
                         rs.getString("job_id"),
-                        rs.getTimestamp("start_time").toLocalDateTime(),
-                        rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toLocalDateTime() : null,
+                        SqliteDataType.toLocalDateTime(rs.getTimestamp("start_time")),
+                        SqliteDataType.toLocalDateTime(rs.getTimestamp("end_time")),
                         rs.getString("status"),
                         rs.getInt("exit_code"),
                         rs.getLong("duration_ms"),
@@ -154,11 +135,11 @@ public class ExecutionRepository {
         return executions;
     }
 
-    public Optional<String> getStdoutPath(long executionId) {
+    public synchronized Optional<String> getStdoutPath(long executionId) {
         return getFilePath(executionId, "stdout_file");
     }
 
-    public Optional<String> getStderrPath(long executionId) {
+    public synchronized Optional<String> getStderrPath(long executionId) {
         return getFilePath(executionId, "stderr_file");
     }
 
@@ -178,20 +159,6 @@ public class ExecutionRepository {
             throw new RepositoryException("Failed to get file path for execution: " + executionId, e);
         }
     }
-
-    // Records
-    public record ExecutionContext(
-            long executionId,
-            String stdoutFile,
-            String stderrFile
-    ) {}
-
-    public record ExecutionSummary(
-            LocalDateTime lastExecution,
-            LocalDateTime endTime,
-            String status,
-            int exitCode
-    ) {}
 
     public record ExecutionRecord(
             long id,
