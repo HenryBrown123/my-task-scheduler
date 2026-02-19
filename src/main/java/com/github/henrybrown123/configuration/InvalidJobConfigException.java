@@ -12,9 +12,9 @@ import java.nio.file.Path;
  * error messages. Like when a mandatory property is missing or the wrong data type is used... (pretty common)
  *
  */
-public class InvalidConfigException extends Exception {
+public class InvalidJobConfigException extends Exception {
 
-    public InvalidConfigException(String message, Throwable throwable) {
+    public InvalidJobConfigException(String message, Throwable throwable) {
         super(message, throwable);
     }
 
@@ -23,7 +23,7 @@ public class InvalidConfigException extends Exception {
      * @param configPath
      * @param e
      */
-    public InvalidConfigException(Path configPath, DatabindException e) {
+    public InvalidJobConfigException(Path configPath, DatabindException e) {
         super(buildMessage(configPath, e), e);
     }
 

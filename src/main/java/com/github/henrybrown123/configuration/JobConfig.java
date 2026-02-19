@@ -1,7 +1,7 @@
 package com.github.henrybrown123.configuration;
 
 import com.github.henrybrown123.model.JobData;
-import com.github.henrybrown123.model.job.JobCommandData;
+import com.github.henrybrown123.model.job.command.JobCommandData;
 import com.github.henrybrown123.model.job.JobMeta;
 import com.github.henrybrown123.model.job.schedule.IJobScheduleData;
 
