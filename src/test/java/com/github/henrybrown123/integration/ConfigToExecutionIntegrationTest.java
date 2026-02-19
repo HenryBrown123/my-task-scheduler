@@ -4,10 +4,11 @@ import com.github.henrybrown123.configuration.JobConfigLoader;
 import com.github.henrybrown123.database.Database;
 import com.github.henrybrown123.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
-import com.github.henrybrown123.repository.ExecutionRepository;
-import com.github.henrybrown123.repository.JobAggregateProvider;
-import com.github.henrybrown123.repository.JobRepository;
-import com.github.henrybrown123.repository.ScheduleRepository;
+import com.github.henrybrown123.repository.sql.CredentialDao;
+import com.github.henrybrown123.repository.sql.ExecutionDao;
+import com.github.henrybrown123.repository.JobDataRepository;
+import com.github.henrybrown123.repository.sql.JobDao;
+import com.github.henrybrown123.repository.sql.ScheduleDao;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,9 +22,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration tests for reading configuratino file from configured source and deserializing into
+ * Integration tests for reading configuration file from configured source and deserializing into
  * the JobData and syncing to the database. In memory sqlite database used.
- *
  */
 class ConfigToExecutionIntegrationTest {
 
@@ -31,22 +31,20 @@ class ConfigToExecutionIntegrationTest {
     Path tempDir;
 
     private Database database;
-    private Connection conn;
-    private JobRepository jobRepo;
-    private ScheduleRepository scheduleRepo;
-    private ExecutionRepository execRepo;
-    private JobAggregateProvider provider;
+    private ExecutionDao execRepo;
+    private JobDataRepository jobDataRepo;
     private Path configPath;
+    private CredentialDao credentialDao;
 
     @BeforeEach
     void setUp() throws Exception {
         database = new Database();
-        conn = database.getConnection();
+        Connection conn = database.getConnection();
 
-        jobRepo = new JobRepository(conn);
-        scheduleRepo = new ScheduleRepository(conn);
-        execRepo = new ExecutionRepository(conn);
-        provider = new JobAggregateProvider(jobRepo, scheduleRepo, execRepo);
+        var jobRepo = new JobDao(conn);
+        var scheduleRepo = new ScheduleDao(conn);
+        execRepo = new ExecutionDao(conn);
+        jobDataRepo = new JobDataRepository(jobRepo, scheduleRepo, execRepo, credentialDao);
         configPath = tempDir.resolve("jobs.yaml");
     }
 
@@ -78,10 +76,10 @@ class ConfigToExecutionIntegrationTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, provider);
+        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
         loader.loadAndSync();
 
-        List<JobData> jobs = provider.getAllJobs();
+        List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(1, jobs.size());
         assertEquals("integration-job", jobs.get(0).meta().id());
         assertEquals("simple", jobs.get(0).schedule().type());
@@ -106,11 +104,11 @@ class ConfigToExecutionIntegrationTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, provider);
+        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
         loader.loadAndSync();
 
-        JobData job = provider.getJob("exec-test").orElseThrow();
-        JobExecutor executor = new JobExecutor(execRepo);
+        JobData job = jobDataRepo.get("exec-test").orElseThrow();
+        JobExecutor executor = new JobExecutor(execRepo, null);
         executor.runJob(job);
 
         var lastExec = execRepo.getLastExecution("exec-test");
@@ -151,16 +149,16 @@ class ConfigToExecutionIntegrationTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, provider);
+        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
         loader.loadAndSync();
 
-        List<JobData> jobs = provider.getAllJobs();
+        List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(2, jobs.size());
     }
 
     @Test
     void shouldUpdateExistingJobOnConfigChange() throws Exception {
-        JobConfigLoader loader = new JobConfigLoader(configPath, provider);
+        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
 
         Files.writeString(configPath, """
             jobs:
@@ -198,7 +196,7 @@ class ConfigToExecutionIntegrationTest {
             """);
         loader.loadAndSync();
 
-        List<JobData> jobs = provider.getAllJobs();
+        List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(1, jobs.size());
         assertEquals("Updated Name", jobs.get(0).meta().name());
     }
