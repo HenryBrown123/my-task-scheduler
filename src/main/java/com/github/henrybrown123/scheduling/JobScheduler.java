@@ -1,5 +1,7 @@
 package com.github.henrybrown123.scheduling;
 
+import com.github.henrybrown123.configuration.AppConfig;
+
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -8,28 +10,20 @@ import java.util.concurrent.*;
 
 /**
  * Bespoke implementation of a scheduler, wrapping ScheduledExecutorService
- **/
-
+ */
 public class JobScheduler {
     private final ScheduledExecutorService executor;
-    // notes: thread safe collections for tacking jobs at runtime
     private final Map<String, ScheduledFuture<?>> jobs = new ConcurrentHashMap<>();
     private final Set<String> runningJobs = ConcurrentHashMap.newKeySet();
 
-    /**
-     * Constructor to create a scheduler instance of a specified pool size
-     */
-    public JobScheduler(int poolSize) {
+    public JobScheduler() {
+        this(AppConfig.scheduling().poolSize());
+    }
+
+    JobScheduler(int poolSize) {
         this.executor = Executors.newScheduledThreadPool(poolSize);
     }
 
-    /**
-     * Wrapper to provide tracking running jobs, logging etc... could be split
-     * into its own class if extra functionality gets too much: ScheduledJob
-     * @param jobId
-     * @param job
-     * @return
-     */
     private Runnable wrappedScheduledJob(String jobId, Runnable job) {
         return () -> {
             runningJobs.add(jobId);
@@ -44,7 +38,7 @@ public class JobScheduler {
     public void scheduleJob(String jobId, Runnable job, LocalDateTime when) {
         long delayInSeconds = Duration.between(LocalDateTime.now(), when).getSeconds();
 
-        if(runningJobs.contains(jobId)){
+        if (runningJobs.contains(jobId)) {
             System.out.println("[" + jobId + "] Job already running... unable to schedule");
             return;
         }
@@ -62,4 +56,7 @@ public class JobScheduler {
         executor.shutdown();
     }
 
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        return executor.awaitTermination(timeout, unit);
+    }
 }

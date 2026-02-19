@@ -6,13 +6,13 @@ import com.github.henrybrown123.configuration.AppProperties;
  * Scheduling settings.
  * Immutable record built from application.properties.
  */
-public record SchedulingProperties(
+public record SchedulingConfig(
         String logsDir,
         int poolSize,
         long pollIntervalMs
 ) {
-    public static SchedulingProperties fromProps(AppProperties props) {
-        return new SchedulingProperties(
+    public static SchedulingConfig fromProps(AppProperties props) {
+        return new SchedulingConfig(
                 props.getString("scheduling.logs.dir", "logs"),
                 props.getInt("scheduling.pool.size", 4),
                 props.getLong("scheduling.poll.interval.ms", 60000)

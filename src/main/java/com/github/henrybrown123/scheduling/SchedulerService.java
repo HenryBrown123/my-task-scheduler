@@ -1,35 +1,35 @@
 package com.github.henrybrown123.scheduling;
 
-import com.github.henrybrown123.configuration.ConfigLoader;
-import com.github.henrybrown123.configuration.InvalidConfigException;
+import com.github.henrybrown123.configuration.AppConfig;
+import com.github.henrybrown123.configuration.JobConfigLoader;
+import com.github.henrybrown123.configuration.InvalidJobConfigException;
 import com.github.henrybrown123.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
-import com.github.henrybrown123.repository.JobAggregateProvider;
-import com.github.henrybrown123.repository.JobRepository;
+import com.github.henrybrown123.repository.JobDataRepository;
 
-import java.io.IOException;
-import java.sql.SQLException;
 import java.util.List;
 
 public class SchedulerService {
     private final JobScheduler jobScheduler;
-    private final JobAggregateProvider jobAggregateProvider;
+    private final JobDataRepository jobDataRepository;
     private final JobExecutor jobExecutor;
-    private final ConfigLoader jobConfigLoader;
+    private final JobConfigLoader jobConfigLoader;
+    private final long pollIntervalMs;
 
     private volatile boolean running = false;
     private Thread schedulerThread;
 
     public SchedulerService(
             JobScheduler jobScheduler,
-            JobAggregateProvider jobAggregateProvider,
+            JobDataRepository jobDataRepository,
             JobExecutor jobExecutor,
-            ConfigLoader jobConfigLoader
+            JobConfigLoader jobConfigLoader
     ) {
         this.jobScheduler = jobScheduler;
-        this.jobAggregateProvider = jobAggregateProvider;
+        this.jobDataRepository = jobDataRepository;
         this.jobExecutor = jobExecutor;
         this.jobConfigLoader = jobConfigLoader;
+        this.pollIntervalMs = AppConfig.scheduling().pollIntervalMs();
     }
 
     public void start() {
@@ -38,45 +38,47 @@ public class SchedulerService {
         schedulerThread.start();
     }
 
-    // todo: sort out exception handling here.... way too many try catch... can use result pattern maybe here ?
-    // I.e. ConfigLoadResult, JobProviderResult, ScheduleJobResult? ... then i can have a "proper" exception thrown
-    // from here ....
     private void run() {
         while (running) {
             try {
-                // reads in "fresh" and updates the database with any changes...
-                jobConfigLoader.loadAndSync();
-
-
-                List<JobData> allJobs = jobAggregateProvider.getActiveJobs();
-
-                List<JobData> dueJobs = allJobs.stream()
-                        .filter(JobData::isDue)
-                        .toList();
-
-                dueJobs.forEach(job -> jobScheduler.scheduleJob(
-                        job.meta().name(),
-                        () -> jobExecutor.runJob(job),
-                        job.getNextExecutionTime()
-                ));
-
-                if (!dueJobs.isEmpty()) {
-                    System.out.println("Scheduled " + dueJobs.size() + " due job(s)");
-                }
-
-                // todo: implement better logic here ....
-                Thread.sleep(5000);
-
+                tick();
+                Thread.sleep(pollIntervalMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
-            } catch (InvalidConfigException e) {
-                throw new RuntimeException(e);
             }
         }
     }
 
-    // todo: implement proper shutdown logic..
+    /**
+     * Performs a single scheduling cycle: loads config, syncs to DB,
+     * finds due jobs, and submits them for execution.
+     *
+     * Package-private so integration tests can call this synchronously.
+     */
+    public void tick() {
+        try {
+            jobConfigLoader.loadAndSync();
+        } catch (InvalidJobConfigException e) {
+            System.err.println("Failed to load job config: " + e.getMessage());
+            return;
+        }
+
+        List<JobData> dueJobs = jobDataRepository.getAll().stream()
+                .filter(JobData::isDue)
+                .toList();
+
+        dueJobs.forEach(job -> jobScheduler.scheduleJob(
+                job.meta().name(),
+                () -> jobExecutor.runJob(job),
+                job.getNextExecutionTime()
+        ));
+
+        if (!dueJobs.isEmpty()) {
+            System.out.println("Scheduled " + dueJobs.size() + " due job(s)");
+        }
+    }
+
     public void shutdown() {
         running = false;
         if (schedulerThread != null) {
