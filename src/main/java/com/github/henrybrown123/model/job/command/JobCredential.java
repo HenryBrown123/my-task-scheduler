@@ -1,8 +1,8 @@
 package com.github.henrybrown123.model.job.command;
 
-import com.github.henrybrown123.security.SecretType;
+import com.github.henrybrown123.security.ESecretType;
 
-public record JobCredentials(
+public record JobCredential(
         String name,
-        SecretType type
+        ESecretType type
 ) {}

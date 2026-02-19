@@ -12,21 +12,21 @@ import java.util.*;
  * Used by the gRPC layer for credential CRUD and by the scheduler
  * to check job readiness before execution.
  */
-public class SecretService {
+public class CredentialService {
 
     /**
      * Status of a single credential across all jobs that require it.
      */
     public record CredentialStatus(
             String name,
-            SecretType type,
+            ESecretType type,
             boolean present,
             List<String> jobIds
     ) {}
 
     private final VaultLifecycle vault;
 
-    public SecretService(VaultLifecycle vault) {
+    public CredentialService(VaultLifecycle vault) {
         this.vault = vault;
     }
 
@@ -119,7 +119,7 @@ public class SecretService {
      * @param type the credential type
      * @param fields the key-value pairs to store
      */
-    public void store(String name, SecretType type, Map<String, String> fields) {
+    public void store(String name, ESecretType type, Map<String, String> fields) {
         vault.write(name, new LinkedHashMap<>(fields));
     }
 
@@ -150,4 +150,5 @@ public class SecretService {
     public boolean isVaultHealthy() {
         return vault.isHealthy();
     }
+
 }

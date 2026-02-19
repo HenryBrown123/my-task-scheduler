@@ -7,7 +7,7 @@ import java.util.Set;
  * Each type defines the fields that must be provided when storing
  * a credential of that type in Vault.
  */
-public enum SecretType {
+public enum ESecretType {
     SMTP("host", "port", "username", "password"),
     DATABASE("host", "port", "username", "password", "database"),
     SSH("host", "port", "username", "private_key"),
@@ -20,7 +20,7 @@ public enum SecretType {
 
     public final String[] fields;
 
-    SecretType(String... fields) {
+    ESecretType(String... fields) {
         this.fields = fields;
     }
 
