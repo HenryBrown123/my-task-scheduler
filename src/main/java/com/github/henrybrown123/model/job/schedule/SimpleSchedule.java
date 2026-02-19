@@ -29,7 +29,7 @@ public record SimpleSchedule(
     }
 
     private ValidationResult validateInterval(String interval) {
-        Pattern intervalPattern = Pattern.compile("(\\d+)([a-z])");
+        Pattern intervalPattern = Pattern.compile("(\\d+)([a-zA-Z])");
         Matcher matcher = intervalPattern.matcher(interval);
 
         if (!matcher.matches()) {
@@ -83,20 +83,20 @@ public record SimpleSchedule(
     }
 
     private Duration parseIntervalToSeconds(String interval) {
-        Pattern pattern = Pattern.compile("(\\d+)([a-z])");
+        Pattern pattern = Pattern.compile("(\\d+)([a-zA-Z])");
         Matcher matcher = pattern.matcher(interval);
 
         if (matcher.matches()) {
             int value = Integer.parseInt(matcher.group(1));
             var timeCode = matcher.group(2);
 
-            var seconds =  switch (timeCode) {
+            var seconds = switch (timeCode) {
                 case "m" -> (long) value * 60;
-                case "h" -> value * 60 * 60 * 1000L;
-                case "d" -> value * 24 * 60 * 60 * 1000L;
-                case "w" -> value * 7 * 24 * 60 * 60 * 1000L;
-                case "M" -> value * 30L * 24 * 60 * 60 * 1000L;
-                case "y" -> value * 365L * 24 * 60 * 60 * 1000L;
+                case "h" -> (long) value * 60 * 60;
+                case "d" -> (long) value * 24 * 60 * 60;
+                case "w" -> (long) value * 7 * 24 * 60 * 60;
+                case "M" -> (long) value * 30 * 24 * 60 * 60;
+                case "y" -> (long) value * 365 * 24 * 60 * 60;
                 default -> throw new IllegalArgumentException("Unknown time code: " + timeCode);
             };
 
