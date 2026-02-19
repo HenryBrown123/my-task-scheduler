@@ -1,6 +1,6 @@
 package com.github.henrybrown123.model;
 
-import com.github.henrybrown123.model.job.JobCommandData;
+import com.github.henrybrown123.model.job.command.JobCommandData;
 import com.github.henrybrown123.model.job.execution.JobExecutionData;
 import com.github.henrybrown123.model.job.JobMeta;
 import com.github.henrybrown123.model.job.schedule.IJobScheduleData;
@@ -14,9 +14,17 @@ public record JobData(
         JobExecutionData execution
 ) {
 
-
+    /**
+     * Record method using schedule and execution record methods and fields.
+     * @return next execution date and time for job
+     */
     public LocalDateTime getNextExecutionTime() {
-        return schedule.getNextExecutionDate(execution.lastExecution());
+        LocalDateTime lastExecution = null;
+        if (execution != null){
+            lastExecution = execution.lastExecution();
+        }
+
+        return schedule.getNextExecutionDate(lastExecution);
     }
 
     public boolean isDue() {
