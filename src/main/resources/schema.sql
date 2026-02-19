@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS config_files(
 );
 
 -- Job definitions table, loaded from config file
--- TODO: may want to think about whether we make this a history table... if we want config versioning then we should
 CREATE TABLE IF NOT EXISTS jobs (
                                     id TEXT PRIMARY KEY,
                                     name TEXT NOT NULL,
@@ -20,10 +19,19 @@ CREATE TABLE IF NOT EXISTS jobs (
                                     command TEXT,
                                     interpreter TEXT,
                                     status TEXT DEFAULT 'active',
-                                    start_date TEXT,
-                                    end_date TEXT,
+                                    start_date DATE,
+                                    end_date DATE,
                                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS job_credentials (
+    job_id TEXT NOT NULL,
+    credential_name TEXT NOT NULL,
+    credential_type TEXT NOT NULL,
+    PRIMARY KEY (job_id, credential_name),
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+
 );
 
 -- Schedule tables (schedule-specific data only)
@@ -81,9 +89,7 @@ CREATE TABLE IF NOT EXISTS job_executions (
                                               FOREIGN KEY(job_id) REFERENCES jobs(id)
 );
 
--- job_logs table can be removed or kept for backward compatibility
--- If you want to remove it, just delete this section:
--- DROP TABLE IF EXISTS job_logs;
+
 
 -- Indexes remain the same
 CREATE INDEX IF NOT EXISTS idx_job_id ON job_executions(job_id);

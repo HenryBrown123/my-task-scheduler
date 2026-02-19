@@ -1,5 +1,7 @@
 package com.github.henrybrown123.database;
 
+import com.github.henrybrown123.configuration.AppConfig;
+
 import java.sql.*;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -10,13 +12,13 @@ import java.nio.charset.StandardCharsets;
  *
  */
 public class Database implements AutoCloseable {
-    // todo: move path to config
-    private static final String DB_PATH = "data/jobs.db";
+    private static final String DB_PATH = AppConfig.db().path();
     private final Connection conn;
 
     public Database() throws SQLException {
         new java.io.File("data");
-        conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
+        this.conn = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
+        initSchema();
     }
 
     private void initSchema() throws SQLException {
@@ -30,13 +32,15 @@ public class Database implements AutoCloseable {
 
             String schema = new String(is.readAllBytes(), StandardCharsets.UTF_8);
 
-            try (Statement stmt = conn.createStatement()) {
-                for (String sql : schema.split(";")) {
-                    if (!sql.trim().isEmpty()) {
+            for (String sql : schema.split(";")) {
+                if (!sql.trim().isEmpty()) {
+                    try (Statement stmt = conn.createStatement()) {
                         stmt.execute(sql.trim());
-                    }
+                    } catch (SQLException e) {
+                     throw new RuntimeException("Failed to initialize schema database executing " + sql.trim(), e);
                 }
             }
+        }
         } catch (Exception e) {
             throw new SQLException("Failed to initialize schema", e);
         }
