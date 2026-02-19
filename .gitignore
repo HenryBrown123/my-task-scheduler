@@ -44,6 +44,6 @@ build/
 .DS_Store
 
 ### Local scripts ###
-commits.sh
-domain.excalidraw
 data/jobs.db
+/demo/.venv/
+

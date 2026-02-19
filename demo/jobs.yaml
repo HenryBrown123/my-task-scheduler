@@ -1,0 +1,21 @@
+jobs:
+  - meta:
+      id: mac-report
+      name: "Monthly Mac Usage Report"
+      description: "Generates HTML report with screen time, disk usage, git activity and emails it"
+      priority: low
+      tags:
+        - reporting
+        - email
+    schedule:
+      type: simple
+      interval: 1d
+      start_date: "2025-02-01"
+      end_date: null
+    command:
+      type: script
+      command: "demo/my_mac_app_usage.py"
+      interpreter: python
+      credentials:
+        - name: smtp
+          type: SMTP
