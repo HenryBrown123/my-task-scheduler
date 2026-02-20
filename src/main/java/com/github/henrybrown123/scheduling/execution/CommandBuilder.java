@@ -1,4 +1,4 @@
-package com.github.henrybrown123.execution;
+package com.github.henrybrown123.scheduling.execution;
 
 import com.github.henrybrown123.model.job.execution.ExecutionType;
 import com.github.henrybrown123.model.job.Interpreter;

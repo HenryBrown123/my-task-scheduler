@@ -2,7 +2,7 @@ package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.JobConfigLoader;
 import com.github.henrybrown123.database.Database;
-import com.github.henrybrown123.execution.JobExecutor;
+import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.sql.CredentialDao;
 import com.github.henrybrown123.repository.sql.ExecutionDao;

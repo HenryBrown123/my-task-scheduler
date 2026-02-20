@@ -1,4 +1,4 @@
-package com.github.henrybrown123.execution;
+package com.github.henrybrown123.scheduling.execution;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.henrybrown123.configuration.AppConfig;

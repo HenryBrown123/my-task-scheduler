@@ -3,7 +3,7 @@ package com.github.henrybrown123.scheduling;
 import com.github.henrybrown123.configuration.AppConfig;
 import com.github.henrybrown123.configuration.JobConfigLoader;
 import com.github.henrybrown123.configuration.InvalidJobConfigException;
-import com.github.henrybrown123.execution.JobExecutor;
+import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.JobDataRepository;
 
