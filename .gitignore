@@ -47,3 +47,4 @@ build/
 data/jobs.db
 /demo/.venv/
 
+/.mvn/
