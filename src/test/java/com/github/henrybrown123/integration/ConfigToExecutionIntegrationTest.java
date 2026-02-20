@@ -44,6 +44,7 @@ class ConfigToExecutionIntegrationTest {
         var jobRepo = new JobDao(conn);
         var scheduleRepo = new ScheduleDao(conn);
         execRepo = new ExecutionDao(conn);
+        credentialDao = new CredentialDao(conn);
         jobDataRepo = new JobDataRepository(jobRepo, scheduleRepo, execRepo, credentialDao);
         configPath = tempDir.resolve("jobs.yaml");
     }
