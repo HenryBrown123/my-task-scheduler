@@ -2,17 +2,18 @@ package com.github.henrybrown123.scheduling;
 
 import com.github.henrybrown123.configuration.AppProperties;
 
-/**
- * Scheduling settings.
- * Immutable record built from application.properties.
- */
+import java.nio.file.Path;
+
 public record SchedulingConfig(
+        Path jobsFile,
         String logsDir,
         int poolSize,
         long pollIntervalMs
 ) {
     public static SchedulingConfig fromProps(AppProperties props) {
+        String jobsPath = props.getString("scheduler.jobs", null);
         return new SchedulingConfig(
+                jobsPath != null ? Path.of(jobsPath) : null,
                 props.getString("scheduling.logs.dir", "logs"),
                 props.getInt("scheduling.pool.size", 4),
                 props.getLong("scheduling.poll.interval.ms", 60000)
