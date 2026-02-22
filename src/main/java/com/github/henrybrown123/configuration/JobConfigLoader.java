@@ -4,26 +4,23 @@ import com.fasterxml.jackson.databind.DatabindException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.github.henrybrown123.repository.JobDataRepository;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
 
+/**
+ * Reads and parses YAML job configuration files.
+ * Pure parsing — no database interaction.
+ */
 public class JobConfigLoader {
     record JobConfigFile(List<JobConfig> jobs) {}
 
     private final Path jobConfigPath;
-    private final JobDataRepository jobDataRepository;
 
-    public JobConfigLoader(Path jobConfigPath, JobDataRepository jobDataRepository) {
+    public JobConfigLoader(Path jobConfigPath) {
         this.jobConfigPath = jobConfigPath;
-        this.jobDataRepository = jobDataRepository;
-    }
-
-    public void loadAndSync() throws InvalidJobConfigException {
-        List<JobConfig> configs = read();
-        jobDataRepository.sync(configs);
     }
 
     public List<JobConfig> read() throws InvalidJobConfigException {
@@ -44,5 +41,4 @@ public class JobConfigLoader {
             throw new InvalidJobConfigException("Failed to read config file: " + jobConfigPath, e);
         }
     }
-
 }
