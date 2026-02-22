@@ -30,7 +30,8 @@ public class JobDataRepository {
     private final ExecutionDao execRepo;
     private final CredentialDao credentialDao;
 
-    public JobDataRepository(JobDao jobRepo, ScheduleDao scheduleRepo, ExecutionDao execRepo, CredentialDao credentialDao) {
+    public JobDataRepository(JobDao jobRepo, ScheduleDao scheduleRepo,
+                             ExecutionDao execRepo, CredentialDao credentialDao) {
         this.jobRepo = jobRepo;
         this.scheduleRepo = scheduleRepo;
         this.execRepo = execRepo;
