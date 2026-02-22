@@ -1,8 +1,7 @@
-package com.github.henrybrown123.execution;
+package com.github.henrybrown123.scheduling.execution;
 
 import com.github.henrybrown123.model.job.Interpreter;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
-import com.github.henrybrown123.scheduling.execution.CommandBuilder;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

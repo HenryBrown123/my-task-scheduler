@@ -1,7 +1,7 @@
 package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.AppConfig;
-import com.github.henrybrown123.database.Database;
+import com.github.henrybrown123.database.DatabaseProvider;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.model.job.Interpreter;
@@ -10,7 +10,10 @@ import com.github.henrybrown123.model.job.command.JobCommandData;
 import com.github.henrybrown123.model.job.command.JobCredential;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
 import com.github.henrybrown123.model.job.schedule.SimpleSchedule;
+import com.github.henrybrown123.repository.sql.CredentialDao;
 import com.github.henrybrown123.repository.sql.ExecutionDao;
+import com.github.henrybrown123.repository.sql.JobDao;
+import com.github.henrybrown123.repository.sql.ScheduleDao;
 import com.github.henrybrown123.security.CredentialService;
 import com.github.henrybrown123.security.ESecretType;
 import com.github.henrybrown123.security.VaultLifecycle;
@@ -41,7 +44,7 @@ class SecurityIntegrationTest {
 
     private static VaultLifecycle vault;
     private static CredentialService credentialService;
-    private static Database database;
+    private static DatabaseProvider db;
     private static ExecutionDao executionDao;
     private static JobExecutor executor;
 
@@ -56,15 +59,17 @@ class SecurityIntegrationTest {
 
         credentialService = new CredentialService(vault);
 
-        database = new Database();
-        Connection conn = database.getConnection();
+        db = new DatabaseProvider();
+        Connection conn = db.getConnection();
         executionDao = new ExecutionDao(conn);
         executor = new JobExecutor(executionDao, credentialService);
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
-        if (database != null) database.close();
+    static void tearDown() {
+        if (db != null) {
+            db.close();
+        }
     }
 
     @BeforeEach

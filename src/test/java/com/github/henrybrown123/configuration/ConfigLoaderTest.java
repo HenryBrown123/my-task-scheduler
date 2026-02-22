@@ -3,13 +3,9 @@ package com.github.henrybrown123.configuration;
 import com.github.henrybrown123.model.job.Interpreter;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
 import com.github.henrybrown123.model.job.schedule.SimpleSchedule;
-import com.github.henrybrown123.repository.JobDataRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,14 +16,10 @@ import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@ExtendWith(MockitoExtension.class)
 class ConfigLoaderTest {
 
     @TempDir
     Path tempDir;
-
-    @Mock
-    private JobDataRepository jobDataRepo;
 
     private Path configPath;
 
@@ -57,7 +49,7 @@ class ConfigLoaderTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
+        JobConfigLoader loader = new JobConfigLoader(configPath);
         List<JobConfig> configs = loader.read();
 
         assertEquals(1, configs.size());
@@ -105,7 +97,7 @@ class ConfigLoaderTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
+        JobConfigLoader loader = new JobConfigLoader(configPath);
         List<JobConfig> configs = loader.read();
 
         assertEquals(2, configs.size());
@@ -116,7 +108,7 @@ class ConfigLoaderTest {
     @Test
     void shouldThrowInvalidConfigExceptionForMissingFile() {
         Path nonExistent = tempDir.resolve("nonexistent.yaml");
-        JobConfigLoader loader = new JobConfigLoader(nonExistent, jobDataRepo);
+        JobConfigLoader loader = new JobConfigLoader(nonExistent);
 
         assertThrows(InvalidJobConfigException.class, loader::read);
     }
@@ -130,7 +122,7 @@ class ConfigLoaderTest {
                 invalid indentation here
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
+        JobConfigLoader loader = new JobConfigLoader(configPath);
         assertThrows(InvalidJobConfigException.class, loader::read);
     }
 
@@ -142,7 +134,7 @@ class ConfigLoaderTest {
                         .toURI()
         );
 
-        var loader = new JobConfigLoader(filePath, jobDataRepo);
+        var loader = new JobConfigLoader(filePath);
         var job = loader.read().getFirst();
 
         assertEquals("health-check-test", job.meta().id());

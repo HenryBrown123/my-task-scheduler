@@ -1,14 +1,14 @@
 package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.JobConfigLoader;
-import com.github.henrybrown123.database.Database;
+import com.github.henrybrown123.database.DatabaseProvider;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.sql.CredentialDao;
 import com.github.henrybrown123.repository.sql.ExecutionDao;
-import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.repository.sql.JobDao;
 import com.github.henrybrown123.repository.sql.ScheduleDao;
+import com.github.henrybrown123.repository.JobDataRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,28 +30,29 @@ class ConfigToExecutionIntegrationTest {
     @TempDir
     Path tempDir;
 
-    private Database database;
+    private DatabaseProvider db;
     private ExecutionDao execRepo;
     private JobDataRepository jobDataRepo;
     private Path configPath;
-    private CredentialDao credentialDao;
 
     @BeforeEach
     void setUp() throws Exception {
-        database = new Database();
-        Connection conn = database.getConnection();
+        db = new DatabaseProvider();
+        Connection conn = db.getConnection();
 
-        var jobRepo = new JobDao(conn);
-        var scheduleRepo = new ScheduleDao(conn);
+        JobDao jobDao = new JobDao(conn);
+        ScheduleDao scheduleDao = new ScheduleDao(conn);
+        CredentialDao credentialDao = new CredentialDao(conn);
         execRepo = new ExecutionDao(conn);
-        jobDataRepo = new JobDataRepository(jobRepo, scheduleRepo, execRepo, credentialDao);
+        jobDataRepo = new JobDataRepository(jobDao, scheduleDao, execRepo, credentialDao);
+
         configPath = tempDir.resolve("jobs.yaml");
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        if (database != null) {
-            database.close();
+    void tearDown() {
+        if (db != null) {
+            db.close();
         }
     }
 
@@ -76,8 +77,9 @@ class ConfigToExecutionIntegrationTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
-        loader.loadAndSync();
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
 
         List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(1, jobs.size());
@@ -104,8 +106,9 @@ class ConfigToExecutionIntegrationTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
-        loader.loadAndSync();
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
 
         JobData job = jobDataRepo.get("exec-test").orElseThrow();
         JobExecutor executor = new JobExecutor(execRepo, null);
@@ -149,8 +152,9 @@ class ConfigToExecutionIntegrationTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
-        loader.loadAndSync();
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
 
         List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(2, jobs.size());
@@ -158,7 +162,7 @@ class ConfigToExecutionIntegrationTest {
 
     @Test
     void shouldUpdateExistingJobOnConfigChange() throws Exception {
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
+        var loader = new JobConfigLoader(configPath);
 
         Files.writeString(configPath, """
             jobs:
@@ -176,7 +180,7 @@ class ConfigToExecutionIntegrationTest {
                   command: "echo original"
                   interpreter: bash
             """);
-        loader.loadAndSync();
+        jobDataRepo.sync(loader.read());
 
         Files.writeString(configPath, """
             jobs:
@@ -194,7 +198,7 @@ class ConfigToExecutionIntegrationTest {
                   command: "echo updated"
                   interpreter: bash
             """);
-        loader.loadAndSync();
+        jobDataRepo.sync(loader.read());
 
         List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(1, jobs.size());

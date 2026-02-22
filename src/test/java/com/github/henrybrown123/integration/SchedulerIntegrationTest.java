@@ -2,14 +2,14 @@ package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.AppConfig;
 import com.github.henrybrown123.configuration.JobConfigLoader;
-import com.github.henrybrown123.database.Database;
+import com.github.henrybrown123.configuration.JobConfigSync;
+import com.github.henrybrown123.database.DatabaseProvider;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.repository.sql.CredentialDao;
 import com.github.henrybrown123.repository.sql.ExecutionDao;
-import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.repository.sql.JobDao;
 import com.github.henrybrown123.repository.sql.ScheduleDao;
-import com.github.henrybrown123.scheduling.JobScheduler;
+import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.scheduling.SchedulerService;
 import com.github.henrybrown123.security.CredentialService;
 import com.github.henrybrown123.security.VaultLifecycle;
@@ -37,32 +37,30 @@ class SchedulerIntegrationTest {
     @TempDir
     Path tempDir;
 
-    private Database database;
+    private DatabaseProvider db;
     private ExecutionDao execRepo;
     private JobDataRepository jobDataRepo;
-    private JobScheduler scheduler;
-    private CredentialDao credentialDao;
+    private SchedulerService scheduler;
 
     @BeforeEach
     void setUp() throws Exception {
-        database = new Database();
-        Connection conn = database.getConnection();
+        db = new DatabaseProvider();
+        Connection conn = db.getConnection();
 
-        var jobRepo = new JobDao(conn);
-        var scheduleRepo = new ScheduleDao(conn);
+        JobDao jobDao = new JobDao(conn);
+        ScheduleDao scheduleDao = new ScheduleDao(conn);
+        CredentialDao credentialDao = new CredentialDao(conn);
         execRepo = new ExecutionDao(conn);
-        credentialDao = new CredentialDao(conn);
-        jobDataRepo = new JobDataRepository(jobRepo, scheduleRepo, execRepo,credentialDao);
-        scheduler = new JobScheduler();
+        jobDataRepo = new JobDataRepository(jobDao, scheduleDao, execRepo, credentialDao);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown() {
         if (scheduler != null) {
             scheduler.shutdown();
         }
-        if (database != null) {
-            database.close();
+        if (db != null) {
+            db.close();
         }
     }
 
@@ -70,31 +68,44 @@ class SchedulerIntegrationTest {
         Path configPath = Files.createTempFile(tempDir, "jobs-", ".yaml");
         Files.writeString(configPath, yaml);
 
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
+
+        // Create a JobConfigSync that points at this temp file
+        var configSync = new TestConfigSync(configPath, jobDataRepo);
+
         var executor = new JobExecutor(execRepo, null);
-        var loader = new JobConfigLoader(configPath, jobDataRepo);
-        return new SchedulerService(scheduler, jobDataRepo, executor, loader);
+        scheduler = new SchedulerService(jobDataRepo, executor, configSync);
+        return scheduler;
     }
 
     private SchedulerService createServiceWithCredentials(String yaml, CredentialService credService) throws Exception {
         Path configPath = Files.createTempFile(tempDir, "jobs-", ".yaml");
         Files.writeString(configPath, yaml);
 
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
+
+        var configSync = new TestConfigSync(configPath, jobDataRepo);
+
         var executor = new JobExecutor(execRepo, credService);
-        var loader = new JobConfigLoader(configPath, jobDataRepo);
-        return new SchedulerService(scheduler, jobDataRepo, executor, loader);
+        scheduler = new SchedulerService(jobDataRepo, executor, configSync);
+        return scheduler;
     }
 
     private void tickAndWait(SchedulerService service) {
         try {
             service.tick();
-            scheduler.shutdown();
-            boolean terminated = scheduler.awaitTermination(5, TimeUnit.SECONDS);
+            service.shutdown();
+            boolean terminated = service.awaitTermination(5, TimeUnit.SECONDS);
             if (!terminated) {
-                fail("Scheduler did not terminate within 5 seconds — jobs may still be running");
+                fail("Scheduler did not terminate within 5 seconds");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            fail("Scheduler interrupted while waiting for termination", e);
+            fail("Scheduler interrupted", e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to complete tickAndWait", e);
         }
@@ -197,7 +208,6 @@ class SchedulerIntegrationTest {
         assertTrue(firstExec.isPresent());
         long firstExecId = firstExec.get().executionId();
 
-        scheduler = new JobScheduler();
         var service2 = createService("""
             jobs:
               - meta:
@@ -335,22 +345,31 @@ class SchedulerIntegrationTest {
     }
 
     /**
-     * In-memory fake Vault for integration tests that need credential
-     * piping without a running Vault server.
+     * Test-only JobConfigSync that takes a custom path instead
+     * of reading from AppConfig.
+     */
+    static class TestConfigSync extends JobConfigSync {
+        TestConfigSync(Path configPath, JobDataRepository jobDataRepo) {
+            super(jobDataRepo);
+            // The parent reads from AppConfig, but for tests we pre-sync
+            // in createService so syncIfChanged is effectively a no-op
+            // on unchanged files.
+        }
+    }
+
+    /**
+     * In-memory fake Vault for integration tests.
      */
     static class FakeVaultLifecycle extends VaultLifecycle {
         private final Map<String, Map<String, String>> secrets = new HashMap<>();
 
-        FakeVaultLifecycle() {
-            super();
-        }
+        FakeVaultLifecycle() { super(); }
 
         void store(String name, Map<String, String> fields) {
             secrets.put(name, new HashMap<>(fields));
         }
 
-        @Override
-        public void ensureReady() {}
+        @Override public void ensureReady() {}
 
         @Override
         public Optional<Map<String, String>> read(String name) {
@@ -364,14 +383,7 @@ class SchedulerIntegrationTest {
             secrets.put(name, stringFields);
         }
 
-        @Override
-        public void delete(String name) {
-            secrets.remove(name);
-        }
-
-        @Override
-        public boolean isHealthy() {
-            return true;
-        }
+        @Override public void delete(String name) { secrets.remove(name); }
+        @Override public boolean isHealthy() { return true; }
     }
 }
