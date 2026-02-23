@@ -24,7 +24,7 @@ import static org.mockito.Mockito.*;
 class CredentialServiceTest {
 
     @Mock
-    private VaultLifecycle vault;
+    private SecretProvider vault;
 
     @InjectMocks
     private CredentialService credentialService;

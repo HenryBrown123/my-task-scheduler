@@ -1,6 +1,8 @@
 package com.github.henrybrown123.configuration;
 
 import com.github.henrybrown123.repository.JobDataRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 
@@ -12,6 +14,8 @@ import java.nio.file.Path;
  * Call {@link #syncIfChanged()} on each scheduler tick.
  */
 public class JobConfigSync {
+    private static final Logger log = LoggerFactory.getLogger(JobConfigSync.class);
+
     private final Path configPath;
     private final JobDataRepository jobDataRepo;
     private final JobConfigLoader loader;
@@ -48,9 +52,9 @@ public class JobConfigSync {
         try {
             var configs = loader.read();
             jobDataRepo.sync(configs);
-            System.out.println("Job config synced (" + configs.size() + " jobs)");
+            log.info("Job config synced ({} jobs)", configs.size());
         } catch (InvalidJobConfigException e) {
-            System.err.println("Failed to sync job config: " + e.getMessage());
+            log.error("Failed to sync job config: {}", e.getMessage());
         }
     }
 }

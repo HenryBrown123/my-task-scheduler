@@ -5,6 +5,9 @@ import com.github.henrybrown123.configuration.JobConfigSync;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.JobDataRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -18,6 +21,8 @@ import java.util.concurrent.*;
  * Combines job scheduling logic with the executor service.
  */
 public class SchedulerService {
+    private static final Logger log = LoggerFactory.getLogger(SchedulerService.class);
+
     private final ScheduledExecutorService executor;
     private final Map<String, ScheduledFuture<?>> scheduledJobs = new ConcurrentHashMap<>();
     private final Set<String> runningJobs = ConcurrentHashMap.newKeySet();
@@ -72,26 +77,27 @@ public class SchedulerService {
                 .toList();
 
         dueJobs.forEach(job -> scheduleJob(
+                job.meta().id(),
                 job.meta().name(),
                 () -> jobExecutor.runJob(job),
                 job.getNextExecutionTime()
         ));
 
         if (!dueJobs.isEmpty()) {
-            System.out.println("Scheduled " + dueJobs.size() + " due job(s)");
+            log.info("Scheduled {} due job(s)", dueJobs.size());
         }
     }
 
-    private void scheduleJob(String jobId, Runnable job, LocalDateTime when) {
+    private void scheduleJob(String jobId, String jobName, Runnable job, LocalDateTime when) {
         long delayInSeconds = Duration.between(LocalDateTime.now(), when).getSeconds();
 
         if (runningJobs.contains(jobId)) {
-            System.out.println("[" + jobId + "] Job already running... unable to schedule");
+            log.warn("[{}] Job already running... unable to schedule", jobName);
             return;
         }
 
         ScheduledFuture<?> future = executor.schedule(
-                wrappedJob(jobId, job),
+                wrappedJob(jobId, jobName, job),
                 delayInSeconds,
                 TimeUnit.SECONDS
         );
@@ -99,13 +105,16 @@ public class SchedulerService {
         scheduledJobs.put(jobId, future);
     }
 
-    private Runnable wrappedJob(String jobId, Runnable job) {
+    private Runnable wrappedJob(String jobId, String jobName, Runnable job) {
         return () -> {
+            MDC.put("jobName", "[" + jobName + "]");
+            MDC.put("jobId", jobId);
             runningJobs.add(jobId);
             try {
                 job.run();
             } finally {
                 runningJobs.remove(jobId);
+                MDC.clear();
             }
         };
     }

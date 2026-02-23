@@ -6,6 +6,8 @@ import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.sql.ExecutionDao;
 import com.github.henrybrown123.security.AppCredential;
 import com.github.henrybrown123.security.CredentialService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -22,16 +24,20 @@ import java.util.concurrent.TimeUnit;
  * and pipes them to the script via stdin as JSON.
  */
 public class JobExecutor {
+    private static final Logger log = LoggerFactory.getLogger(JobExecutor.class);
     private static final long DEFAULT_TIMEOUT_SECONDS = 300;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ExecutionDao executionDao;
     private final CredentialService credentialService;
+    private final boolean vaultAvailable;
     private final String logsDir;
 
-    public JobExecutor(ExecutionDao executionDao, CredentialService credentialService) {
+    public JobExecutor(ExecutionDao executionDao, CredentialService credentialService,
+                       boolean vaultAvailable) {
         this.executionDao = executionDao;
         this.credentialService = credentialService;
+        this.vaultAvailable = vaultAvailable;
         this.logsDir = AppConfig.scheduling().logsDir();
         ensureLogsDirectory();
     }
@@ -45,21 +51,27 @@ public class JobExecutor {
     private record LogFiles(Path stdout, Path stderr) {}
 
     public void runJob(JobData job) {
-        if (!job.command().credentials().isEmpty() && !credentialService.jobIsReady(job)) {
-            System.err.println("[" + job.meta().name() + "] Skipped — missing credentials");
-            return;
+        if (requiresCredentials(job)) {
+            if (!vaultAvailable) {
+                log.warn("Skipped — Vault unavailable");
+                return;
+            }
+            if (!credentialService.jobIsReady(job)) {
+                log.warn("Skipped — missing credentials");
+                return;
+            }
         }
 
-        System.out.println("[" + job.meta().name() + "] Running");
+        log.info("Running");
         JobRunResult result = executeJob(job);
 
         switch (result) {
             case JobRunResult.Success(long execId) ->
-                    System.out.println("[" + job.meta().name() + "] Success (execution: " + execId + ")");
+                    log.info("Success (execution: {})", execId);
             case JobRunResult.Timeout(long execId) ->
-                    System.err.println("[" + job.meta().name() + "] Timeout (execution: " + execId + ")");
+                    log.error("Timeout (execution: {})", execId);
             case JobRunResult.Failure(String message, long execId) ->
-                    System.err.println("[" + job.meta().name() + "] Failed: " + message + " (execution: " + execId + ")");
+                    log.error("Failed: {} (execution: {})", message, execId);
         }
     }
 
@@ -177,5 +189,9 @@ public class JobExecutor {
         } catch (IOException e) {
             throw new RuntimeException("Failed to create logs directory: " + logsDir, e);
         }
+    }
+
+    private boolean requiresCredentials(JobData job) {
+        return job.command().credentials() != null && !job.command().credentials().isEmpty();
     }
 }

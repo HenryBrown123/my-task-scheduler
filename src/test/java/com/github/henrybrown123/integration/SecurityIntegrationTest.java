@@ -16,7 +16,7 @@ import com.github.henrybrown123.repository.sql.JobDao;
 import com.github.henrybrown123.repository.sql.ScheduleDao;
 import com.github.henrybrown123.security.CredentialService;
 import com.github.henrybrown123.security.ESecretType;
-import com.github.henrybrown123.security.VaultLifecycle;
+import com.github.henrybrown123.security.VaultManager;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 class SecurityIntegrationTest {
 
-    private static VaultLifecycle vault;
+    private static VaultManager vault;
     private static CredentialService credentialService;
     private static DatabaseProvider db;
     private static ExecutionDao executionDao;
@@ -54,7 +54,7 @@ class SecurityIntegrationTest {
         System.out.println("Vault address: " + AppConfig.vault().address());
         assumeTrue(vaultReachable(), "Vault not running — skipping security integration tests");
 
-        vault = new VaultLifecycle();
+        vault = new VaultManager();
         vault.ensureReady();
 
         credentialService = new CredentialService(vault);

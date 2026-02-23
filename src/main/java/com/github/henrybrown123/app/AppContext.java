@@ -8,8 +8,11 @@ import com.github.henrybrown123.security.SecurityModule;
 
 /**
  * Composes all application modules.
- * Infrastructure modules have no cross-module dependencies (except ConfigModule).
- * Feature modules depend on infrastructure.
+ * Infrastructure first, features second.
+ *
+ * <p>Construction order matters — each module depends only
+ * on modules constructed before it:
+ * db → persistence → config (syncs jobs) → security (verifies credentials) → scheduling
  */
 public class AppContext implements AutoCloseable {
 
@@ -17,20 +20,20 @@ public class AppContext implements AutoCloseable {
 
     // infrastructure
     private final PersistenceModule persistence;
-    private final SecurityModule security;
     private final ConfigModule config;
+    private final SecurityModule security;
 
     // features
     private final SchedulingModule scheduling;
 
-    public AppContext() throws Exception {
+    public AppContext() {
         // database
         this.db = new DatabaseProvider();
 
         // infrastructure
         this.persistence = new PersistenceModule(db);
-        this.security = new SecurityModule();
         this.config = new ConfigModule(persistence);
+        this.security = new SecurityModule(persistence);
 
         // features
         this.scheduling = new SchedulingModule(persistence, security, config);

@@ -1,6 +1,8 @@
 package com.github.henrybrown123.database;
 
 import com.github.henrybrown123.configuration.AppConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -14,6 +16,8 @@ import java.sql.Statement;
  * Constructed once at startup, passed into the persistence layer.
  */
 public class DatabaseProvider implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(DatabaseProvider.class);
+
     private final Connection connection;
 
     public DatabaseProvider() {
@@ -46,7 +50,7 @@ public class DatabaseProvider implements AutoCloseable {
         try {
             Connection conn = DriverManager.getConnection(url);
             conn.setAutoCommit(true);
-            System.out.println("Database connected: " + url);
+            log.info("Database connected: {}", url);
             return conn;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to connect to database: " + url, e);

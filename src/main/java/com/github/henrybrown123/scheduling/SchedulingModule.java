@@ -13,17 +13,13 @@ import com.github.henrybrown123.scheduling.execution.JobExecutor;
  */
 public class SchedulingModule {
     private final SchedulerService scheduler;
-    private final PersistenceModule persistence;
-    private final SecurityModule security;
 
     public SchedulingModule(PersistenceModule persistence, SecurityModule security,
                             ConfigModule config) {
-        this.persistence = persistence;
-        this.security = security;
-
         var executor = new JobExecutor(
                 persistence.executionDao(),
-                security.credentialService());
+                security.credentialService(),
+                security.isVaultAvailable());
 
         this.scheduler = new SchedulerService(
                 persistence.jobDataRepo(),
@@ -32,19 +28,6 @@ public class SchedulingModule {
     }
 
     public void start() {
-        reportMissingCredentials();
         scheduler.start();
-    }
-
-    private void reportMissingCredentials() {
-        var missing = security.credentialService()
-                .scanMissing(persistence.jobDataRepo().getAll());
-        if (missing.isEmpty()) return;
-
-        System.out.println("\nMissing credentials:");
-        for (var m : missing) {
-            System.out.println("  " + m.name() + " (" + m.type() + ") — blocks: " + m.jobIds());
-        }
-        System.out.println();
     }
 }

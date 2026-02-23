@@ -12,7 +12,7 @@ import com.github.henrybrown123.repository.sql.ScheduleDao;
 import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.scheduling.SchedulerService;
 import com.github.henrybrown123.security.CredentialService;
-import com.github.henrybrown123.security.VaultLifecycle;
+import com.github.henrybrown123.security.SecretProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -234,7 +234,7 @@ class SchedulerIntegrationTest {
 
     @Test
     void shouldPipeCredentialsWhenJobExecutesOnTick() throws Exception {
-        var fakeVault = new FakeVaultLifecycle();
+        var fakeVault = new FakeSecretProvider();
         fakeVault.store("smtp", Map.of(
                 "host", "smtp.gmail.com",
                 "port", "587",
@@ -286,7 +286,7 @@ class SchedulerIntegrationTest {
 
     @Test
     void shouldSkipJobOnTickWhenCredentialsMissing() throws Exception {
-        var fakeVault = new FakeVaultLifecycle();
+        var fakeVault = new FakeSecretProvider();
         var credService = new CredentialService(fakeVault);
 
         var service = createServiceWithCredentials("""
@@ -358,18 +358,14 @@ class SchedulerIntegrationTest {
     }
 
     /**
-     * In-memory fake Vault for integration tests.
+     * In-memory fake secret provider for integration tests.
      */
-    static class FakeVaultLifecycle extends VaultLifecycle {
+    static class FakeSecretProvider implements SecretProvider {
         private final Map<String, Map<String, String>> secrets = new HashMap<>();
-
-        FakeVaultLifecycle() { super(); }
 
         void store(String name, Map<String, String> fields) {
             secrets.put(name, new HashMap<>(fields));
         }
-
-        @Override public void ensureReady() {}
 
         @Override
         public Optional<Map<String, String>> read(String name) {
