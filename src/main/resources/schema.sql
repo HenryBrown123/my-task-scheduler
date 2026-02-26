@@ -1,4 +1,14 @@
--- TODO: Basic schema for job tracking, better database constraints could be implemented to enforce data integratity.
+DROP TABLE IF EXISTS job_logs;
+DROP TABLE IF EXISTS job_executions;
+DROP TABLE IF EXISTS job_credentials;
+DROP TABLE IF EXISTS schedule_simple;
+DROP TABLE IF EXISTS schedule_monthly;
+DROP TABLE IF EXISTS schedule_weekly;
+DROP TABLE IF EXISTS schedule_cron;
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS config_files;
+
+
 CREATE TABLE IF NOT EXISTS config_files(
                                            id INTEGER PRIMARY KEY AUTOINCREMENT,
                                            file_path TEXT,
@@ -63,7 +73,6 @@ CREATE TABLE IF NOT EXISTS schedule_cron (
                                              FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
 );
 
--- Execution history
 -- Execution logs
 CREATE TABLE IF NOT EXISTS job_logs (
                                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +82,7 @@ CREATE TABLE IF NOT EXISTS job_logs (
                                         FOREIGN KEY(execution_id) REFERENCES job_executions(id) ON DELETE CASCADE
 );
 
--- Update job_executions table to include file paths
+-- Execution history
 CREATE TABLE IF NOT EXISTS job_executions (
                                               id INTEGER PRIMARY KEY AUTOINCREMENT,
                                               job_id TEXT NOT NULL,
@@ -89,16 +98,8 @@ CREATE TABLE IF NOT EXISTS job_executions (
                                               FOREIGN KEY(job_id) REFERENCES jobs(id)
 );
 
-
-
--- Indexes remain the same
-CREATE INDEX IF NOT EXISTS idx_job_id ON job_executions(job_id);
-CREATE INDEX IF NOT EXISTS idx_status ON job_executions(status);
-CREATE INDEX IF NOT EXISTS idx_start_time ON job_executions(start_time DESC);
-CREATE INDEX IF NOT EXISTS idx_job_start ON job_executions(job_id, start_time DESC);
-
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_job_id ON job_executions(job_id);
-CREATE INDEX IF NOT EXISTS idx_status ON job_executions(status);
-CREATE INDEX IF NOT EXISTS idx_start_time ON job_executions(start_time DESC);
-CREATE INDEX IF NOT EXISTS idx_job_start ON job_executions(job_id, start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_exec_job_id ON job_executions(job_id);
+CREATE INDEX IF NOT EXISTS idx_exec_status ON job_executions(status);
+CREATE INDEX IF NOT EXISTS idx_exec_start_time ON job_executions(start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_exec_job_start ON job_executions(job_id, start_time DESC);
