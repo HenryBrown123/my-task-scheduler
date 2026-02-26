@@ -22,6 +22,63 @@ public class ExecutionDao {
         this.conn = conn;
     }
 
+    public synchronized long createQueuedExecution(String jobId, String triggeredBy) {
+        String sql = """
+            INSERT INTO job_executions (job_id, start_time, status, triggered_by)
+            VALUES (?, datetime('now'), 'queued', ?)
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, jobId);
+            stmt.setString(2, triggeredBy);
+            stmt.executeUpdate();
+
+            try (Statement idStmt = conn.createStatement()) {
+                ResultSet rs = idStmt.executeQuery("SELECT last_insert_rowid()");
+                if (rs.next()) {
+                    return rs.getLong(1);
+                }
+                throw new RepositoryException("Failed to get execution ID for job: " + jobId, null);
+            }
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to queue execution for job: " + jobId, e);
+        }
+    }
+
+    public synchronized void updateExecutionStatus(long executionId, String status) {
+        String sql = """
+            UPDATE job_executions
+            SET status = ?, start_time = datetime('now')
+            WHERE id = ?
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, status);
+            stmt.setLong(2, executionId);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to update execution status: " + executionId, e);
+        }
+    }
+
+    public synchronized void attachLogFiles(long executionId, String stdoutFile, String stderrFile) {
+        String sql = """
+            UPDATE job_executions
+            SET stdout_file = ?, stderr_file = ?
+            WHERE id = ?
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, stdoutFile);
+            stmt.setString(2, stderrFile);
+            stmt.setLong(3, executionId);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to attach log files to execution: " + executionId, e);
+        }
+    }
+
+    @Deprecated
     public synchronized long createExecutionRecord(String jobId, String triggeredBy, String stdoutFile, String stderrFile) {
         String sql = """
             INSERT INTO job_executions (job_id, start_time, status, triggered_by, stdout_file, stderr_file)
