@@ -18,11 +18,11 @@ public class SchedulingModule {
                             ConfigModule config) {
         var executor = new JobExecutor(
                 persistence.executionDao(),
-                security.credentialService(),
-                security.isVaultAvailable());
+                security.credentialService());
 
         this.scheduler = new SchedulerService(
                 persistence.jobDataRepo(),
+                persistence.executionDao(),
                 executor,
                 config.configSync());
     }
