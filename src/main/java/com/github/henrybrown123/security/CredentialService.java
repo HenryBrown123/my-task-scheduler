@@ -22,6 +22,13 @@ public class CredentialService {
     }
 
     /**
+     * Returns whether the underlying Vault is available.
+     */
+    public boolean isVaultAvailable() {
+        return vault.isAvailable();
+    }
+
+    /**
      * Returns jobs that require credentials but are missing at least one.
      */
     public List<JobData> findJobsMissingCredentials(List<JobData> jobs) {
