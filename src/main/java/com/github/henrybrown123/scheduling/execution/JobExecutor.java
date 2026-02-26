@@ -30,16 +30,12 @@ public class JobExecutor {
 
     private final ExecutionDao executionDao;
     private final CredentialService credentialService;
-    private final boolean vaultAvailable;
     private final String logsDir;
 
-    public JobExecutor(ExecutionDao executionDao, CredentialService credentialService,
-                       boolean vaultAvailable) {
+    public JobExecutor(ExecutionDao executionDao, CredentialService credentialService) {
         this.executionDao = executionDao;
         this.credentialService = credentialService;
-        this.vaultAvailable = vaultAvailable;
         this.logsDir = AppConfig.scheduling().logsDir();
-        ensureLogsDirectory();
     }
 
     private sealed interface JobRunResult {
@@ -50,46 +46,47 @@ public class JobExecutor {
 
     private record LogFiles(Path stdout, Path stderr) {}
 
-    public void runJob(JobData job) {
+    public void runJob(JobData job, long execId) {
         if (requiresCredentials(job)) {
-            if (!vaultAvailable) {
-                log.warn("Skipped — Vault unavailable");
+            if (!credentialService.isVaultAvailable()) {
+                log.warn("Skipped — Vault not available");
+                executionDao.setExecutionAsCompleted(execId, "cancelled", -1);
                 return;
             }
             if (!credentialService.jobIsReady(job)) {
                 log.warn("Skipped — missing credentials");
+                executionDao.setExecutionAsCompleted(execId, "cancelled", -1);
                 return;
             }
         }
 
         log.info("Running");
-        JobRunResult result = executeJob(job);
+        JobRunResult result = executeJob(job, execId);
 
         switch (result) {
-            case JobRunResult.Success(long execId) ->
-                    log.info("Success (execution: {})", execId);
-            case JobRunResult.Timeout(long execId) ->
-                    log.error("Timeout (execution: {})", execId);
-            case JobRunResult.Failure(String message, long execId) ->
-                    log.error("Failed: {} (execution: {})", message, execId);
+            case JobRunResult.Success(long id) ->
+                    log.info("Success (execution: {})", id);
+            case JobRunResult.Timeout(long id) ->
+                    log.error("Timeout (execution: {})", id);
+            case JobRunResult.Failure(String message, long id) ->
+                    log.error("Failed: {} (execution: {})", message, id);
         }
     }
 
-    private JobRunResult executeJob(JobData job) {
-        String jobId = job.meta().id();
+    private boolean requiresCredentials(JobData job) {
+        return !job.command().credentials().isEmpty();
+    }
 
+    private JobRunResult executeJob(JobData job, long execId) {
         LogFiles logFiles;
         try {
-            logFiles = createLogFiles(jobId);
+            logFiles = createLogFiles(job.meta().id());
         } catch (IOException e) {
-            return new JobRunResult.Failure("Failed to create log files: " + e.getMessage(), -1);
+            executionDao.setExecutionAsCompleted(execId, "failed", -1);
+            return new JobRunResult.Failure("Failed to create log files: " + e.getMessage(), execId);
         }
 
-        long execId = executionDao.createExecutionRecord(
-                jobId, "job-executor",
-                logFiles.stdout().toString(),
-                logFiles.stderr().toString()
-        );
+        executionDao.attachLogFiles(execId, logFiles.stdout().toString(), logFiles.stderr().toString());
 
         try {
             Process process = startProcess(job, logFiles);
@@ -108,6 +105,7 @@ public class JobExecutor {
     private LogFiles createLogFiles(String jobId) throws IOException {
         var logPrefix = LocalDateTime.now() + "-" + jobId + "_";
         var logsDirectoryPath = Paths.get(logsDir);
+        Files.createDirectories(logsDirectoryPath);
 
         Path stdout = Files.createTempFile(logsDirectoryPath, logPrefix, "_stdout.log");
         Path stderr = Files.createTempFile(logsDirectoryPath, logPrefix, "_stderr.log");
@@ -140,12 +138,11 @@ public class JobExecutor {
      * </pre>
      */
     private void pipeCredentials(Process process, JobData job) throws IOException {
-        if (job.command().credentials() == null || job.command().credentials().isEmpty()) {
+        if (!requiresCredentials(job)) {
             process.getOutputStream().close();
             return;
         }
 
-        // retrieve AppCredential from vault based on the specified credential type/name configured on the job config
         Map<String, AppCredential> resolved = credentialService.resolveForJob(job.command().credentials());
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -181,17 +178,5 @@ public class JobExecutor {
         return exitCode == 0
                 ? new JobRunResult.Success(execId)
                 : new JobRunResult.Failure("Exit code " + exitCode, execId);
-    }
-
-    private void ensureLogsDirectory() {
-        try {
-            Files.createDirectories(Paths.get(logsDir));
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create logs directory: " + logsDir, e);
-        }
-    }
-
-    private boolean requiresCredentials(JobData job) {
-        return job.command().credentials() != null && !job.command().credentials().isEmpty();
     }
 }
