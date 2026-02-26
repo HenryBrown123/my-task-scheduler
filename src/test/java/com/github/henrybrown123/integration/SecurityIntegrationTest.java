@@ -55,7 +55,7 @@ class SecurityIntegrationTest {
         assumeTrue(vaultReachable(), "Vault not running — skipping security integration tests");
 
         vault = new VaultManager();
-        vault.ensureReady();
+        assumeTrue(vault.isAvailable(), "Vault not available — skipping security integration tests");
 
         credentialService = new CredentialService(vault);
 
@@ -113,15 +113,15 @@ class SecurityIntegrationTest {
     }
 
     @Test
-    void shouldScanAndReportMissingCredentials() {
+    void shouldFindJobsMissingCredentials() {
         var jobs = List.of(
                 jobWith("job-1", "echo test", cred("test-smtp", ESecretType.SMTP))
         );
 
-        var missing = credentialService.scanMissing(jobs);
+        var missing = credentialService.findJobsMissingCredentials(jobs);
 
         assertEquals(1, missing.size());
-        assertEquals("test-smtp", missing.get(0).name());
+        assertEquals("job-1", missing.get(0).meta().id());
     }
 
     @Test
@@ -129,10 +129,14 @@ class SecurityIntegrationTest {
         var job = jobWith("skip-job", "echo should-not-run",
                 cred("test-smtp", ESecretType.SMTP));
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("skip-job", "test");
+        executionDao.updateExecutionStatus(execId, "running");
+        executor.runJob(job, execId);
 
-        assertTrue(executionDao.getLastExecution("skip-job").isEmpty(),
-                "Job should not have executed — credentials missing");
+        var lastExec = executionDao.getLastExecution("skip-job");
+        assertTrue(lastExec.isPresent(), "Execution record should exist");
+        assertEquals("cancelled", lastExec.get().lastRunStatus(),
+                "Job should be cancelled — credentials missing");
     }
 
     @Test
@@ -142,7 +146,9 @@ class SecurityIntegrationTest {
         var job = jobWith("pipe-job", "cat",
                 cred("test-smtp", ESecretType.SMTP));
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("pipe-job", "test");
+        executionDao.updateExecutionStatus(execId, "running");
+        executor.runJob(job, execId);
 
         Path stdout = findLogFile("pipe-job", "stdout");
         assertNotNull(stdout, "stdout log file should exist");
@@ -159,7 +165,9 @@ class SecurityIntegrationTest {
     void shouldCloseStdinWhenNoCredentials() throws Exception {
         var job = jobWith("no-creds-job", "cat");
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("no-creds-job", "test");
+        executionDao.updateExecutionStatus(execId, "running");
+        executor.runJob(job, execId);
 
         var lastExec = executionDao.getLastExecution("no-creds-job");
         assertTrue(lastExec.isPresent(), "cat with no stdin should still complete");
@@ -177,7 +185,9 @@ class SecurityIntegrationTest {
         var job = jobWith("success-job", "echo done",
                 cred("test-smtp", ESecretType.SMTP));
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("success-job", "test");
+        executionDao.updateExecutionStatus(execId, "running");
+        executor.runJob(job, execId);
 
         var lastExec = executionDao.getLastExecution("success-job");
         assertTrue(lastExec.isPresent());

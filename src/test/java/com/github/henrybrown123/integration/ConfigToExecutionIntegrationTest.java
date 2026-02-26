@@ -9,6 +9,8 @@ import com.github.henrybrown123.repository.sql.ExecutionDao;
 import com.github.henrybrown123.repository.sql.JobDao;
 import com.github.henrybrown123.repository.sql.ScheduleDao;
 import com.github.henrybrown123.repository.JobDataRepository;
+import com.github.henrybrown123.security.CredentialService;
+import com.github.henrybrown123.security.SecretProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +19,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -111,8 +116,13 @@ class ConfigToExecutionIntegrationTest {
         jobDataRepo.sync(configs);
 
         JobData job = jobDataRepo.get("exec-test").orElseThrow();
-        JobExecutor executor = new JobExecutor(execRepo, null);
-        executor.runJob(job);
+        var fakeVault = new FakeSecretProvider();
+        var credService = new CredentialService(fakeVault);
+        JobExecutor executor = new JobExecutor(execRepo, credService);
+
+        long execId = execRepo.createQueuedExecution("exec-test", "test");
+        execRepo.updateExecutionStatus(execId, "running");
+        executor.runJob(job, execId);
 
         var lastExec = execRepo.getLastExecution("exec-test");
         assertTrue(lastExec.isPresent());
@@ -203,5 +213,24 @@ class ConfigToExecutionIntegrationTest {
         List<JobData> jobs = jobDataRepo.getAll();
         assertEquals(1, jobs.size());
         assertEquals("Updated Name", jobs.get(0).meta().name());
+    }
+
+    static class FakeSecretProvider implements SecretProvider {
+        private final Map<String, Map<String, String>> secrets = new HashMap<>();
+
+        @Override
+        public Optional<Map<String, String>> read(String name) {
+            return Optional.ofNullable(secrets.get(name));
+        }
+
+        @Override
+        public void write(String name, Map<String, Object> fields) {
+            Map<String, String> stringFields = new HashMap<>();
+            fields.forEach((k, v) -> stringFields.put(k, v.toString()));
+            secrets.put(name, stringFields);
+        }
+
+        @Override public void delete(String name) { secrets.remove(name); }
+        @Override public boolean isAvailable() { return true; }
     }
 }

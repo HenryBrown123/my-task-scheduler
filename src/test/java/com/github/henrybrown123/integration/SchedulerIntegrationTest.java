@@ -75,8 +75,10 @@ class SchedulerIntegrationTest {
         // Create a JobConfigSync that points at this temp file
         var configSync = new TestConfigSync(configPath, jobDataRepo);
 
-        var executor = new JobExecutor(execRepo, null);
-        scheduler = new SchedulerService(jobDataRepo, executor, configSync);
+        var fakeVault = new FakeSecretProvider();
+        var credService = new CredentialService(fakeVault);
+        var executor = new JobExecutor(execRepo, credService);
+        scheduler = new SchedulerService(jobDataRepo, execRepo, executor, configSync);
         return scheduler;
     }
 
@@ -91,7 +93,7 @@ class SchedulerIntegrationTest {
         var configSync = new TestConfigSync(configPath, jobDataRepo);
 
         var executor = new JobExecutor(execRepo, credService);
-        scheduler = new SchedulerService(jobDataRepo, executor, configSync);
+        scheduler = new SchedulerService(jobDataRepo, execRepo, executor, configSync);
         return scheduler;
     }
 
@@ -315,7 +317,8 @@ class SchedulerIntegrationTest {
         assertEquals(1, jobs.size());
 
         var lastExec = execRepo.getLastExecution("missing-creds-job");
-        assertTrue(lastExec.isEmpty(), "Job should not have executed — credentials missing");
+        assertTrue(lastExec.isPresent(), "Execution record should exist");
+        assertEquals("cancelled", lastExec.get().lastRunStatus(), "Job should be cancelled — credentials missing");
     }
 
     @Test
@@ -380,6 +383,6 @@ class SchedulerIntegrationTest {
         }
 
         @Override public void delete(String name) { secrets.remove(name); }
-        @Override public boolean isHealthy() { return true; }
+        @Override public boolean isAvailable() { return true; }
     }
 }
