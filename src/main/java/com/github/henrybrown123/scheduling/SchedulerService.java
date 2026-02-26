@@ -5,6 +5,7 @@ import com.github.henrybrown123.configuration.JobConfigSync;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.JobDataRepository;
+import com.github.henrybrown123.repository.sql.ExecutionDao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -12,22 +13,17 @@ import org.slf4j.MDC;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.*;
 
 /**
  * Main scheduling service that polls for due jobs and executes them.
- * Combines job scheduling logic with the executor service.
  */
 public class SchedulerService {
     private static final Logger log = LoggerFactory.getLogger(SchedulerService.class);
 
     private final ScheduledExecutorService executor;
-    private final Map<String, ScheduledFuture<?>> scheduledJobs = new ConcurrentHashMap<>();
-    private final Set<String> runningJobs = ConcurrentHashMap.newKeySet();
-
     private final JobDataRepository jobDataRepository;
+    private final ExecutionDao executionDao;
     private final JobExecutor jobExecutor;
     private final JobConfigSync configSync;
     private final long pollIntervalMs;
@@ -37,11 +33,13 @@ public class SchedulerService {
 
     public SchedulerService(
             JobDataRepository jobDataRepository,
+            ExecutionDao executionDao,
             JobExecutor jobExecutor,
             JobConfigSync configSync
     ) {
         this.executor = Executors.newScheduledThreadPool(AppConfig.scheduling().poolSize());
         this.jobDataRepository = jobDataRepository;
+        this.executionDao = executionDao;
         this.jobExecutor = jobExecutor;
         this.configSync = configSync;
         this.pollIntervalMs = AppConfig.scheduling().pollIntervalMs();
@@ -65,55 +63,45 @@ public class SchedulerService {
         }
     }
 
-    /**
-     * Performs a single scheduling cycle: syncs config if changed,
-     * finds due jobs, and submits them for execution.
-     */
     public void tick() {
         configSync.syncIfChanged();
 
         List<JobData> dueJobs = jobDataRepository.getAll().stream()
                 .filter(JobData::isDue)
+                .filter(JobData::isIdle)
                 .toList();
 
-        dueJobs.forEach(job -> scheduleJob(
-                job.meta().id(),
-                job.meta().name(),
-                () -> jobExecutor.runJob(job),
-                job.getNextExecutionTime()
-        ));
+        dueJobs.forEach(this::scheduleJob);
 
         if (!dueJobs.isEmpty()) {
             log.info("Scheduled {} due job(s)", dueJobs.size());
         }
     }
 
-    private void scheduleJob(String jobId, String jobName, Runnable job, LocalDateTime when) {
-        long delayInSeconds = Duration.between(LocalDateTime.now(), when).getSeconds();
+    private void scheduleJob(JobData job) {
+        String jobId = job.meta().id();
+        String jobName = job.meta().name();
 
-        if (runningJobs.contains(jobId)) {
-            log.warn("[{}] Job already running... unable to schedule", jobName);
-            return;
-        }
+        long execId = executionDao.createQueuedExecution(jobId, "scheduler");
 
-        ScheduledFuture<?> future = executor.schedule(
-                wrappedJob(jobId, jobName, job),
+        long delayInSeconds = Duration.between(LocalDateTime.now(),
+                job.getNextExecutionTime()).getSeconds();
+
+        executor.schedule(
+                wrappedJob(jobId, jobName, execId, () -> jobExecutor.runJob(job, execId)),
                 delayInSeconds,
                 TimeUnit.SECONDS
         );
-
-        scheduledJobs.put(jobId, future);
     }
 
-    private Runnable wrappedJob(String jobId, String jobName, Runnable job) {
+    private Runnable wrappedJob(String jobId, String jobName, long execId, Runnable job) {
         return () -> {
             MDC.put("jobName", "[" + jobName + "]");
             MDC.put("jobId", jobId);
-            runningJobs.add(jobId);
+            executionDao.updateExecutionStatus(execId, "running");
             try {
                 job.run();
             } finally {
-                runningJobs.remove(jobId);
                 MDC.clear();
             }
         };
