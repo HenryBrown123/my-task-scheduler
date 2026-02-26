@@ -18,14 +18,12 @@ public class SecurityModule {
     private static final Logger log = LoggerFactory.getLogger(SecurityModule.class);
 
     private final CredentialService credentialService;
-    private final boolean vaultAvailable;
 
     public SecurityModule(PersistenceModule persistence) {
         var vault = new VaultManager();
         this.credentialService = new CredentialService(vault);
-        this.vaultAvailable = vault.isAvailable();
 
-        if (vaultAvailable) {
+        if (vault.isAvailable()) {
             verifyCredentials(persistence);
         } else {
             log.warn("Vault is not available — jobs requiring credentials will be skipped");
@@ -43,10 +41,6 @@ public class SecurityModule {
 
     public CredentialService credentialService() {
         return credentialService;
-    }
-
-    public boolean isVaultAvailable() {
-        return vaultAvailable;
     }
 
     @Override
