@@ -30,4 +30,13 @@ public record JobData(
     public boolean isDue() {
         return getNextExecutionTime().isBefore(LocalDateTime.now());
     }
+
+    public boolean isIdle() {
+        if (execution == null) return true;
+        return switch (execution.status()) {
+            case QUEUED, RUNNING -> false;
+            case COMPLETE, FAILED, TIMEOUT, CANCELLED -> true;
+            default -> true;
+        };
+    }
 }
