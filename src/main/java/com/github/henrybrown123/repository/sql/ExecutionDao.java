@@ -245,4 +245,33 @@ public class ExecutionDao {
             String stdoutFile,
             String stderrFile
     ) {}
+
+    /**
+     * Counts of active (non-terminal) executions, for monitoring.
+     */
+    public record ActiveCounts(long queued, long running) {}
+
+    /**
+     * Returns counts of queued and running executions in a single query.
+     * Lightweight — used by the monitoring daemon every 30 seconds.
+     */
+    public synchronized ActiveCounts getActiveExecutionCounts() {
+        String sql = """
+            SELECT
+                COALESCE(SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), 0) AS queued,
+                COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS running
+            FROM job_executions
+            WHERE status IN ('queued', 'running')
+            """;
+
+        try (Statement stmt = conn.createStatement()) {
+            ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next()) {
+                return new ActiveCounts(rs.getLong("queued"), rs.getLong("running"));
+            }
+            return new ActiveCounts(0, 0);
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to count active executions", e);
+        }
+    }
 }
