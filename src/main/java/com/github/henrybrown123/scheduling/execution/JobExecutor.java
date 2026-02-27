@@ -8,6 +8,7 @@ import com.github.henrybrown123.security.AppCredential;
 import com.github.henrybrown123.security.CredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -17,15 +18,18 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Executes jobs as OS processes. Resolves credentials from Vault
  * and pipes them to the script via stdin as JSON.
+ *
+ * <p>Process execution is non-blocking — the calling thread is released
+ * as soon as the process is started. Completion is handled asynchronously
+ * via {@link Process#onExit()}.
  */
 public class JobExecutor {
     private static final Logger log = LoggerFactory.getLogger(JobExecutor.class);
-    private static final long DEFAULT_TIMEOUT_SECONDS = 300;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ExecutionDao executionDao;
@@ -38,52 +42,45 @@ public class JobExecutor {
         this.logsDir = AppConfig.scheduling().logsDir();
     }
 
-    private sealed interface JobRunResult {
-        record Success(long executionId) implements JobRunResult {}
-        record Failure(String message, long executionId) implements JobRunResult {}
-        record Timeout(long executionId) implements JobRunResult {}
-    }
-
     private record LogFiles(Path stdout, Path stderr) {}
 
-    public void runJob(JobData job, long execId) {
+    /**
+     * Launches a job as an OS process. Returns a future that completes
+     * when the process exits. The future completes immediately if the
+     * job is skipped (missing credentials, Vault unavailable, etc.).
+     *
+     * <p>In production, callers can fire-and-forget. In tests, callers
+     * can {@code future.get(timeout, unit)} for deterministic completion.
+     */
+    public CompletableFuture<Void> runJob(JobData job, long execId) {
         if (requiresCredentials(job)) {
             if (!credentialService.isVaultAvailable()) {
                 log.warn("Skipped — Vault not available");
                 executionDao.setExecutionAsCompleted(execId, "cancelled", -1);
-                return;
+                return CompletableFuture.completedFuture(null);
             }
             if (!credentialService.jobIsReady(job)) {
                 log.warn("Skipped — missing credentials");
                 executionDao.setExecutionAsCompleted(execId, "cancelled", -1);
-                return;
+                return CompletableFuture.completedFuture(null);
             }
         }
 
-        log.info("Running");
-        JobRunResult result = executeJob(job, execId);
-
-        switch (result) {
-            case JobRunResult.Success(long id) ->
-                    log.info("Success (execution: {})", id);
-            case JobRunResult.Timeout(long id) ->
-                    log.error("Timeout (execution: {})", id);
-            case JobRunResult.Failure(String message, long id) ->
-                    log.error("Failed: {} (execution: {})", message, id);
-        }
+        return launchProcess(job, execId);
     }
 
     private boolean requiresCredentials(JobData job) {
         return !job.command().credentials().isEmpty();
     }
 
-    private JobRunResult executeJob(JobData job, long execId) {
+    private CompletableFuture<Void> launchProcess(JobData job, long execId) {
         LogFiles logFiles;
         try {
             logFiles = createLogFiles(job.meta().id());
         } catch (IOException e) {
+            log.error("Failed to create log files: {}", e.getMessage());
             executionDao.setExecutionAsCompleted(execId, "failed", -1);
-            return new JobRunResult.Failure("Failed to create log files: " + e.getMessage(), execId);
+            return CompletableFuture.completedFuture(null);
         }
 
         executionDao.attachLogFiles(execId, logFiles.stdout().toString(), logFiles.stderr().toString());
@@ -91,15 +88,55 @@ public class JobExecutor {
         try {
             Process process = startProcess(job, logFiles);
             pipeCredentials(process, job);
-            return waitAndHandleResult(process, execId);
+
+            executionDao.updateExecutionStatus(execId, "running");
+            log.info("Running (pid: {})", process.pid());
+
+            return handleProcessAsync(process, execId);
         } catch (IOException e) {
+            log.error("Failed to start process: {}", e.getMessage());
             executionDao.setExecutionAsCompleted(execId, "failed", -1);
-            return new JobRunResult.Failure("IO Error: " + e.getMessage(), execId);
-        } catch (InterruptedException e) {
-            executionDao.setExecutionAsCompleted(execId, "cancelled", -1);
-            Thread.currentThread().interrupt();
-            return new JobRunResult.Failure("Interrupted: " + e.getMessage(), execId);
+            return CompletableFuture.completedFuture(null);
         }
+    }
+
+    /**
+     * Sets up async completion handling. The calling thread returns immediately.
+     * MDC context is captured and restored in the callback so log formatting
+     * is consistent with the setup logs.
+     *
+     * @return a future that completes when the process exits
+     */
+    private CompletableFuture<Void> handleProcessAsync(Process process, long execId) {
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+
+        return process.onExit().thenAccept(p -> {
+            if (mdcContext != null) MDC.setContextMap(mdcContext);
+
+            try {
+                int exitCode = p.exitValue();
+                String status = exitCode == 0 ? "complete" : "failed";
+                executionDao.setExecutionAsCompleted(execId, status, exitCode);
+
+                if (exitCode == 0) {
+                    log.info("Success (execution: {})", execId);
+                } else {
+                    log.error("Failed: exit code {} (execution: {})", exitCode, execId);
+                }
+            } finally {
+                MDC.clear();
+            }
+        }).exceptionally(throwable -> {
+            if (mdcContext != null) MDC.setContextMap(mdcContext);
+            try {
+                process.destroyForcibly();
+                executionDao.setExecutionAsCompleted(execId, "failed", -1);
+                log.error("Process error (execution: {}): {}", execId, throwable.getMessage());
+            } finally {
+                MDC.clear();
+            }
+            return null;
+        });
     }
 
     private LogFiles createLogFiles(String jobId) throws IOException {
@@ -128,7 +165,6 @@ public class JobExecutor {
 
     /**
      * Pipes credentials to the process via stdin as JSON.
-     * Matches the stdin contract:
      * <pre>
      * {
      *   "credentials": {
@@ -143,7 +179,8 @@ public class JobExecutor {
             return;
         }
 
-        Map<String, AppCredential> resolved = credentialService.resolveForJob(job.command().credentials());
+        Map<String, AppCredential> resolved = credentialService.resolveForJob(
+                job.command().credentials());
 
         Map<String, Object> payload = new LinkedHashMap<>();
         Map<String, Object> credsMap = new LinkedHashMap<>();
@@ -159,24 +196,5 @@ public class JobExecutor {
         try (OutputStream os = process.getOutputStream()) {
             MAPPER.writeValue(os, payload);
         }
-    }
-
-    private JobRunResult waitAndHandleResult(Process process, long execId) throws InterruptedException {
-        boolean finished = process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
-        if (!finished) {
-            process.destroyForcibly();
-            process.waitFor();
-            executionDao.setExecutionAsCompleted(execId, "timeout", -1);
-            return new JobRunResult.Timeout(execId);
-        }
-
-        int exitCode = process.exitValue();
-        String status = exitCode == 0 ? "complete" : "failed";
-        executionDao.setExecutionAsCompleted(execId, status, exitCode);
-
-        return exitCode == 0
-                ? new JobRunResult.Success(execId)
-                : new JobRunResult.Failure("Exit code " + exitCode, execId);
     }
 }
