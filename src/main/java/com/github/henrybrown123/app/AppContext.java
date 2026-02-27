@@ -36,10 +36,11 @@ public class AppContext implements AutoCloseable {
         this.security = new SecurityModule(persistence);
 
         // features
-        this.scheduling = new SchedulingModule(persistence, security, config);
+        this.scheduling = new SchedulingModule(persistence, security);
     }
 
     public void start() {
+        config.start();
         scheduling.start();
     }
 
