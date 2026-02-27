@@ -10,7 +10,7 @@ import java.sql.Timestamp;
  *
  * <p>SQLite has no real type system — DATE, TIMESTAMP, BOOLEAN are all
  * stored as TEXT. This class makes that conversion explicit and consistent
- * across all repositories.
+ * across all repositories whilst providing null safety when parsing.
  *
  */
 public final class SqliteDataType {
