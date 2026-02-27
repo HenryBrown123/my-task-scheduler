@@ -3,31 +3,24 @@ package com.github.henrybrown123.configuration;
 import com.github.henrybrown123.model.job.Interpreter;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
 import com.github.henrybrown123.model.job.schedule.SimpleSchedule;
-import com.github.henrybrown123.repository.JobDataRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@ExtendWith(MockitoExtension.class)
 class ConfigLoaderTest {
 
     @TempDir
     Path tempDir;
-
-    @Mock
-    private JobDataRepository jobDataRepo;
 
     private Path configPath;
 
@@ -57,20 +50,21 @@ class ConfigLoaderTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
-        List<JobConfig> configs = loader.read();
+        JobConfigLoader loader = new JobConfigLoader(configPath);
+        Map<Integer, JobConfig> configs = loader.read();
 
         assertEquals(1, configs.size());
-        assertEquals("test-job", configs.get(0).meta().id());
-        assertEquals("Test Job", configs.get(0).meta().name());
-        assertEquals("high", configs.get(0).meta().priority());
-        assertEquals(List.of("test"), configs.get(0).meta().tags());
-        assertEquals(ExecutionType.CMD, configs.get(0).command().type());
-        assertEquals("echo hello", configs.get(0).command().command());
-        assertEquals(Interpreter.BASH, configs.get(0).command().interpreter());
-        assertInstanceOf(SimpleSchedule.class, configs.get(0).schedule());
-        assertEquals("5m", ((SimpleSchedule) configs.get(0).schedule()).interval());
-        assertEquals(LocalDate.of(2025, 1, 1), ((SimpleSchedule) configs.get(0).schedule()).startDate());
+        JobConfig config = configs.get(1); // 1-indexed
+        assertEquals("test-job", config.meta().id());
+        assertEquals("Test Job", config.meta().name());
+        assertEquals("high", config.meta().priority());
+        assertEquals(List.of("test"), config.meta().tags());
+        assertEquals(ExecutionType.CMD, config.command().type());
+        assertEquals("echo hello", config.command().command());
+        assertEquals(Interpreter.BASH, config.command().interpreter());
+        assertInstanceOf(SimpleSchedule.class, config.schedule());
+        assertEquals("5m", ((SimpleSchedule) config.schedule()).interval());
+        assertEquals(LocalDate.of(2025, 1, 1), ((SimpleSchedule) config.schedule()).startDate());
     }
 
     @Test
@@ -105,18 +99,18 @@ class ConfigLoaderTest {
                   interpreter: bash
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
-        List<JobConfig> configs = loader.read();
+        JobConfigLoader loader = new JobConfigLoader(configPath);
+        Map<Integer, JobConfig> configs = loader.read();
 
         assertEquals(2, configs.size());
-        assertEquals("job-1", configs.get(0).meta().id());
-        assertEquals("job-2", configs.get(1).meta().id());
+        assertEquals("job-1", configs.get(1).meta().id()); // 1-indexed
+        assertEquals("job-2", configs.get(2).meta().id());
     }
 
     @Test
     void shouldThrowInvalidConfigExceptionForMissingFile() {
         Path nonExistent = tempDir.resolve("nonexistent.yaml");
-        JobConfigLoader loader = new JobConfigLoader(nonExistent, jobDataRepo);
+        JobConfigLoader loader = new JobConfigLoader(nonExistent);
 
         assertThrows(InvalidJobConfigException.class, loader::read);
     }
@@ -130,7 +124,7 @@ class ConfigLoaderTest {
                 invalid indentation here
             """);
 
-        JobConfigLoader loader = new JobConfigLoader(configPath, jobDataRepo);
+        JobConfigLoader loader = new JobConfigLoader(configPath);
         assertThrows(InvalidJobConfigException.class, loader::read);
     }
 
@@ -142,8 +136,8 @@ class ConfigLoaderTest {
                         .toURI()
         );
 
-        var loader = new JobConfigLoader(filePath, jobDataRepo);
-        var job = loader.read().getFirst();
+        var loader = new JobConfigLoader(filePath);
+        var job = loader.read().get(1); // 1-indexed
 
         assertEquals("health-check-test", job.meta().id());
         assertInstanceOf(SimpleSchedule.class, job.schedule());

@@ -24,70 +24,45 @@ import static org.mockito.Mockito.*;
 class CredentialServiceTest {
 
     @Mock
-    private VaultLifecycle vault;
+    private SecretProvider vault;
 
     @InjectMocks
     private CredentialService credentialService;
 
     @Test
-    void scanShouldReturnPresentCredential() {
-        when(vault.read("smtp")).thenReturn(Optional.of(Map.of("host", "smtp.gmail.com")));
-
-        var results = credentialService.scan(List.of(
-                jobWith("job-1", cred("smtp", ESecretType.SMTP))
-        ));
-
-        assertEquals(1, results.size());
-        assertEquals("smtp", results.get(0).name());
-        assertTrue(results.get(0).present());
-        assertEquals(List.of("job-1"), results.get(0).jobIds());
+    void isVaultAvailableShouldDelegateToVault() {
+        when(vault.isAvailable()).thenReturn(true);
+        assertTrue(credentialService.isVaultAvailable());
     }
 
     @Test
-    void scanShouldReturnMissingCredential() {
+    void findJobsMissingCredentialsShouldReturnJobsWithMissingCredentials() {
         when(vault.read("smtp")).thenReturn(Optional.empty());
 
-        var results = credentialService.scan(List.of(
+        var missing = credentialService.findJobsMissingCredentials(List.of(
                 jobWith("job-1", cred("smtp", ESecretType.SMTP))
-        ));
-
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).present());
-    }
-
-    @Test
-    void scanShouldGroupMultipleJobsPerCredential() {
-        when(vault.read("smtp")).thenReturn(Optional.of(Map.of("host", "smtp.gmail.com")));
-
-        var results = credentialService.scan(List.of(
-                jobWith("job-1", cred("smtp", ESecretType.SMTP)),
-                jobWith("job-2", cred("smtp", ESecretType.SMTP))
-        ));
-
-        assertEquals(1, results.size());
-        assertEquals(List.of("job-1", "job-2"), results.get(0).jobIds());
-    }
-
-    @Test
-    void scanMissingShouldFilterToMissingOnly() {
-        when(vault.read("smtp")).thenReturn(Optional.of(Map.of("host", "smtp.gmail.com")));
-        when(vault.read("db")).thenReturn(Optional.empty());
-
-        var missing = credentialService.scanMissing(List.of(
-                jobWith("job-1",
-                        cred("smtp", ESecretType.SMTP),
-                        cred("db", ESecretType.DATABASE))
         ));
 
         assertEquals(1, missing.size());
-        assertEquals("db", missing.get(0).name());
+        assertEquals("job-1", missing.get(0).meta().id());
     }
 
     @Test
-    void scanShouldHandleJobsWithNoCredentials() {
-        var results = credentialService.scan(List.of(jobWith("job-1")));
+    void findJobsMissingCredentialsShouldExcludeJobsWithAllCredentials() {
+        when(vault.read("smtp")).thenReturn(Optional.of(Map.of("host", "smtp.gmail.com")));
 
-        assertTrue(results.isEmpty());
+        var missing = credentialService.findJobsMissingCredentials(List.of(
+                jobWith("job-1", cred("smtp", ESecretType.SMTP))
+        ));
+
+        assertTrue(missing.isEmpty());
+    }
+
+    @Test
+    void findJobsMissingCredentialsShouldExcludeJobsWithNoCredentials() {
+        var missing = credentialService.findJobsMissingCredentials(List.of(jobWith("job-1")));
+
+        assertTrue(missing.isEmpty());
         verify(vault, never()).read(anyString());
     }
 
@@ -141,21 +116,9 @@ class CredentialServiceTest {
     void resolveForJobShouldThrowWhenMissing() {
         when(vault.read("smtp")).thenReturn(Optional.empty());
 
-        assertThrows(RuntimeException.class, () ->
+        assertThrows(SecretStoreException.class, () ->
                 credentialService.resolveForJob(
                         List.of(cred("smtp", ESecretType.SMTP))));
-    }
-
-    @Test
-    void resolveForJobShouldReturnEmptyForNullRequirements() {
-        assertTrue(credentialService.resolveForJob(null).isEmpty());
-        verify(vault, never()).read(anyString());
-    }
-
-    @Test
-    void resolveForJobShouldReturnEmptyForEmptyRequirements() {
-        assertTrue(credentialService.resolveForJob(List.of()).isEmpty());
-        verify(vault, never()).read(anyString());
     }
 
     @Test
@@ -180,12 +143,6 @@ class CredentialServiceTest {
     void deleteShouldDelegateToVault() {
         credentialService.delete("smtp");
         verify(vault).delete("smtp");
-    }
-
-    @Test
-    void isVaultHealthyShouldDelegateToVault() {
-        when(vault.isHealthy()).thenReturn(true);
-        assertTrue(credentialService.isVaultHealthy());
     }
 
     private JobCredential cred(String name, ESecretType type) {

@@ -4,7 +4,14 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 public enum Status {
-    IDLE("idle"), RUNNING("running"), FAILED("failed"), ACTIVE("active"), COMPLETE("compelte");
+    IDLE("idle"),
+    QUEUED("queued"),
+    RUNNING("running"),
+    COMPLETE("complete"),
+    FAILED("failed"),
+    TIMEOUT("timeout"),
+    CANCELLED("cancelled"),
+    ACTIVE("active");
 
     @JsonValue
     public final String type;

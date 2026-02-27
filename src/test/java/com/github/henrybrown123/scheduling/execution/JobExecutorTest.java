@@ -1,4 +1,4 @@
-package com.github.henrybrown123.execution;
+package com.github.henrybrown123.scheduling.execution;
 
 import com.github.henrybrown123.configuration.AppConfig;
 import com.github.henrybrown123.model.JobData;
@@ -15,7 +15,6 @@ import com.github.henrybrown123.security.ESecretType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -23,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -30,53 +30,51 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class JobExecutorTest {
 
+    private static final long EXEC_ID = 1L;
+
     @Mock
     private ExecutionDao execRepo;
 
     @Mock
     private CredentialService credentialService;
 
-    @InjectMocks
     private JobExecutor executor;
     private Path logsDir;
 
     @BeforeEach
     void setUp() {
-        when(execRepo.createExecutionRecord(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(1L);
-
+        executor = new JobExecutor(execRepo, credentialService);
         logsDir = Path.of(AppConfig.scheduling().logsDir());
     }
 
     @Test
-    void shouldStartAndCompleteExecution() {
+    void shouldCompleteExecution() throws Exception {
         JobData job = createJob("test-job", "echo hello");
 
-        executor.runJob(job);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
-        verify(execRepo).createExecutionRecord(eq("test-job"), eq("job-executor"), anyString(), anyString());
-        verify(execRepo).setExecutionAsCompleted(1L, "complete", 0);
+        verify(execRepo).attachLogFiles(eq(EXEC_ID), anyString(), anyString());
+        verify(execRepo).setExecutionAsCompleted(EXEC_ID, "complete", 0);
     }
 
     @Test
-    void shouldRecordFailedExecution() {
+    void shouldRecordFailedExecution() throws Exception {
         JobData job = createJob("fail-job", "exit 1");
 
-        executor.runJob(job);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
-        verify(execRepo).setExecutionAsCompleted(1L, "failed", 1);
+        verify(execRepo).setExecutionAsCompleted(EXEC_ID, "failed", 1);
     }
 
     @Test
     void shouldPipeCredentialsToProcess() throws Exception {
-        // job with credentials
         JobMeta meta = new JobMeta("creds-job", "Test Job", "description", "medium", List.of());
         var credReq = new JobCredential("smtp", ESecretType.SMTP);
         JobCommandData cmd = new JobCommandData(ExecutionType.CMD, "cat", Interpreter.BASH, List.of(credReq));
         SimpleSchedule schedule = new SimpleSchedule("1h", null, null);
         JobData job = new JobData(meta, cmd, schedule, null);
 
-        // stub credential service method responses for job with credentials
+        when(credentialService.isVaultAvailable()).thenReturn(true);
         when(credentialService.jobIsReady(any())).thenReturn(true);
         when(credentialService.resolveForJob(any())).thenReturn(Map.of(
                 "smtp", AppCredential.fromRawFields("smtp", ESecretType.SMTP, Map.of(
@@ -87,9 +85,8 @@ class JobExecutorTest {
                 ))
         ));
 
-        executor.runJob(job);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
-        // cat writes stdin to stdout — so the stdout log should contain the JSON payload
         Path stdout = findLogFile("creds-job", "stdout");
         assertNotNull(stdout);
         String output = Files.readString(stdout);
@@ -102,7 +99,7 @@ class JobExecutorTest {
     void shouldCaptureStdout() throws Exception {
         JobData job = createJob("output-job", "echo 'test output'");
 
-        executor.runJob(job);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         Path stdout = findLogFile("output-job", "stdout");
         assertNotNull(stdout, "stdout log file should exist");
@@ -113,7 +110,7 @@ class JobExecutorTest {
     void shouldCaptureStderr() throws Exception {
         JobData job = createJob("error-job", "echo 'error message' >&2");
 
-        executor.runJob(job);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         Path stderr = findLogFile("error-job", "stderr");
         assertNotNull(stderr, "stderr log file should exist");
@@ -121,25 +118,25 @@ class JobExecutorTest {
     }
 
     @Test
-    void shouldCompleteWithFailedOnIOError() {
+    void shouldCompleteWithFailedOnIOError() throws Exception {
         JobData job = createJob("bad-cmd", "/nonexistent/file");
 
-        executor.runJob(job);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
-        verify(execRepo).setExecutionAsCompleted(1L, "failed", 127);
+        verify(execRepo).setExecutionAsCompleted(EXEC_ID, "failed", 127);
     }
 
     private Path findLogFile(String jobId, String stream) throws Exception {
         return Files.list(logsDir)
                 .filter(p -> p.getFileName().toString().contains(jobId))
                 .filter(p -> p.getFileName().toString().contains(stream))
-                .findFirst()
+                .max(java.util.Comparator.comparingLong(p -> p.toFile().lastModified()))
                 .orElse(null);
     }
 
     private JobData createJob(String id, String command) {
         JobMeta meta = new JobMeta(id, "Test Job", "description", "medium", List.of());
-        JobCommandData cmd = new JobCommandData(ExecutionType.CMD, command, Interpreter.BASH, null);
+        JobCommandData cmd = new JobCommandData(ExecutionType.CMD, command, Interpreter.BASH, List.of());
         SimpleSchedule schedule = new SimpleSchedule("1h", null, null);
         return new JobData(meta, cmd, schedule, null);
     }

@@ -1,8 +1,8 @@
 package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.AppConfig;
-import com.github.henrybrown123.database.Database;
-import com.github.henrybrown123.execution.JobExecutor;
+import com.github.henrybrown123.database.DatabaseProvider;
+import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.model.job.Interpreter;
 import com.github.henrybrown123.model.job.JobMeta;
@@ -10,10 +10,13 @@ import com.github.henrybrown123.model.job.command.JobCommandData;
 import com.github.henrybrown123.model.job.command.JobCredential;
 import com.github.henrybrown123.model.job.execution.ExecutionType;
 import com.github.henrybrown123.model.job.schedule.SimpleSchedule;
+import com.github.henrybrown123.repository.sql.CredentialDao;
 import com.github.henrybrown123.repository.sql.ExecutionDao;
+import com.github.henrybrown123.repository.sql.JobDao;
+import com.github.henrybrown123.repository.sql.ScheduleDao;
 import com.github.henrybrown123.security.CredentialService;
 import com.github.henrybrown123.security.ESecretType;
-import com.github.henrybrown123.security.VaultLifecycle;
+import com.github.henrybrown123.security.VaultManager;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +27,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -39,9 +43,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 class SecurityIntegrationTest {
 
-    private static VaultLifecycle vault;
+    private static VaultManager vault;
     private static CredentialService credentialService;
-    private static Database database;
+    private static DatabaseProvider db;
     private static ExecutionDao executionDao;
     private static JobExecutor executor;
 
@@ -51,20 +55,22 @@ class SecurityIntegrationTest {
         System.out.println("Vault address: " + AppConfig.vault().address());
         assumeTrue(vaultReachable(), "Vault not running — skipping security integration tests");
 
-        vault = new VaultLifecycle();
-        vault.ensureReady();
+        vault = new VaultManager();
+        assumeTrue(vault.isAvailable(), "Vault not available — skipping security integration tests");
 
         credentialService = new CredentialService(vault);
 
-        database = new Database();
-        Connection conn = database.getConnection();
+        db = new DatabaseProvider();
+        Connection conn = db.getConnection();
         executionDao = new ExecutionDao(conn);
         executor = new JobExecutor(executionDao, credentialService);
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
-        if (database != null) database.close();
+    static void tearDown() {
+        if (db != null) {
+            db.close();
+        }
     }
 
     @BeforeEach
@@ -108,26 +114,29 @@ class SecurityIntegrationTest {
     }
 
     @Test
-    void shouldScanAndReportMissingCredentials() {
+    void shouldFindJobsMissingCredentials() {
         var jobs = List.of(
                 jobWith("job-1", "echo test", cred("test-smtp", ESecretType.SMTP))
         );
 
-        var missing = credentialService.scanMissing(jobs);
+        var missing = credentialService.findJobsMissingCredentials(jobs);
 
         assertEquals(1, missing.size());
-        assertEquals("test-smtp", missing.get(0).name());
+        assertEquals("job-1", missing.get(0).meta().id());
     }
 
     @Test
-    void shouldSkipJobWhenCredentialsMissing() {
+    void shouldSkipJobWhenCredentialsMissing() throws Exception {
         var job = jobWith("skip-job", "echo should-not-run",
                 cred("test-smtp", ESecretType.SMTP));
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("skip-job", "test");
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
-        assertTrue(executionDao.getLastExecution("skip-job").isEmpty(),
-                "Job should not have executed — credentials missing");
+        var lastExec = executionDao.getLastExecution("skip-job");
+        assertTrue(lastExec.isPresent(), "Execution record should exist");
+        assertEquals("cancelled", lastExec.get().lastRunStatus(),
+                "Job should be cancelled — credentials missing");
     }
 
     @Test
@@ -137,7 +146,8 @@ class SecurityIntegrationTest {
         var job = jobWith("pipe-job", "cat",
                 cred("test-smtp", ESecretType.SMTP));
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("pipe-job", "test");
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         Path stdout = findLogFile("pipe-job", "stdout");
         assertNotNull(stdout, "stdout log file should exist");
@@ -154,7 +164,8 @@ class SecurityIntegrationTest {
     void shouldCloseStdinWhenNoCredentials() throws Exception {
         var job = jobWith("no-creds-job", "cat");
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("no-creds-job", "test");
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         var lastExec = executionDao.getLastExecution("no-creds-job");
         assertTrue(lastExec.isPresent(), "cat with no stdin should still complete");
@@ -166,13 +177,14 @@ class SecurityIntegrationTest {
     }
 
     @Test
-    void shouldExecuteWithCredentialsAndCompleteSuccessfully() {
+    void shouldExecuteWithCredentialsAndCompleteSuccessfully() throws Exception {
         credentialService.store("test-smtp", ESecretType.SMTP, smtpFields());
 
         var job = jobWith("success-job", "echo done",
                 cred("test-smtp", ESecretType.SMTP));
 
-        executor.runJob(job);
+        long execId = executionDao.createQueuedExecution("success-job", "test");
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         var lastExec = executionDao.getLastExecution("success-job");
         assertTrue(lastExec.isPresent());

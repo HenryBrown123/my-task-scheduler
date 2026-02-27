@@ -22,12 +22,13 @@ public class JobDao {
 
     public void save(JobRecord job) {
         String sql = """
-            INSERT INTO jobs (id, name, description, priority, tags,
+            INSERT INTO jobs (id, seq, name, description, priority, tags,
                              schedule_type, command_type, command, interpreter, status,
                              start_date, end_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
+                seq = excluded.seq,
                 description = excluded.description,
                 priority = excluded.priority,
                 tags = excluded.tags,
@@ -43,17 +44,18 @@ public class JobDao {
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, job.id());
-            stmt.setString(2, job.name());
-            stmt.setString(3, job.description());
-            stmt.setString(4, job.priority());
-            stmt.setString(5, String.join(",", job.tags()));
-            stmt.setString(6, job.scheduleType());
-            stmt.setString(7, job.commandType());
-            stmt.setString(8, job.command());
-            stmt.setString(9, job.interpreter());
-            stmt.setString(10, job.status());
-            stmt.setString(11, SqliteDataType.text(job.startDate()));
-            stmt.setString(12, SqliteDataType.text(job.endDate()));
+            stmt.setInt(2, job.seq());
+            stmt.setString(3, job.name());
+            stmt.setString(4, job.description());
+            stmt.setString(5, job.priority());
+            stmt.setString(6, String.join(",", job.tags()));
+            stmt.setString(7, job.scheduleType());
+            stmt.setString(8, job.commandType());
+            stmt.setString(9, job.command());
+            stmt.setString(10, job.interpreter());
+            stmt.setString(11, job.status());
+            stmt.setString(12, SqliteDataType.text(job.startDate()));
+            stmt.setString(13, SqliteDataType.text(job.endDate()));
             stmt.executeUpdate();
         } catch (SQLException e) {
             throw new RepositoryException("Failed to save job: " + job.id(), e);
@@ -78,7 +80,7 @@ public class JobDao {
     }
 
     public List<JobRecord> findAll() {
-        String sql = "SELECT * FROM jobs ORDER BY name";
+        String sql = "SELECT * FROM jobs ORDER BY seq";
         List<JobRecord> jobs = new ArrayList<>();
 
         try (Statement stmt = conn.createStatement()) {
@@ -98,7 +100,7 @@ public class JobDao {
     }
 
     public List<JobRecord> findByStatus(String status) {
-        String sql = "SELECT * FROM jobs WHERE status = ? ORDER BY name";
+        String sql = "SELECT * FROM jobs WHERE status = ? ORDER BY seq";
         List<JobRecord> jobs = new ArrayList<>();
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -115,7 +117,7 @@ public class JobDao {
     }
 
     public List<String> findAllIds() {
-        String sql = "SELECT id FROM jobs WHERE status = 'active'";
+        String sql = "SELECT id FROM jobs WHERE status = 'active' ORDER BY seq";
         List<String> ids = new ArrayList<>();
 
         try (Statement stmt = conn.createStatement()) {
@@ -160,6 +162,7 @@ public class JobDao {
 
         return new JobRecord(
                 rs.getString("id"),
+                Integer.parseInt(rs.getString("seq")),
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getString("priority"),
@@ -176,6 +179,7 @@ public class JobDao {
 
     public record JobRecord(
             String id,
+            Integer seq,
             String name,
             String description,
             String priority,

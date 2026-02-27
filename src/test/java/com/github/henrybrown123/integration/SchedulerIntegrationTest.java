@@ -2,17 +2,16 @@ package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.AppConfig;
 import com.github.henrybrown123.configuration.JobConfigLoader;
-import com.github.henrybrown123.database.Database;
-import com.github.henrybrown123.execution.JobExecutor;
+import com.github.henrybrown123.database.DatabaseProvider;
+import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.repository.sql.CredentialDao;
 import com.github.henrybrown123.repository.sql.ExecutionDao;
-import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.repository.sql.JobDao;
 import com.github.henrybrown123.repository.sql.ScheduleDao;
-import com.github.henrybrown123.scheduling.JobScheduler;
+import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.scheduling.SchedulerService;
 import com.github.henrybrown123.security.CredentialService;
-import com.github.henrybrown123.security.VaultLifecycle;
+import com.github.henrybrown123.testutil.FakeSecretProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,9 +20,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,32 +34,30 @@ class SchedulerIntegrationTest {
     @TempDir
     Path tempDir;
 
-    private Database database;
+    private DatabaseProvider db;
     private ExecutionDao execRepo;
     private JobDataRepository jobDataRepo;
-    private JobScheduler scheduler;
-    private CredentialDao credentialDao;
+    private SchedulerService scheduler;
 
     @BeforeEach
     void setUp() throws Exception {
-        database = new Database();
-        Connection conn = database.getConnection();
+        db = new DatabaseProvider();
+        Connection conn = db.getConnection();
 
-        var jobRepo = new JobDao(conn);
-        var scheduleRepo = new ScheduleDao(conn);
+        JobDao jobDao = new JobDao(conn);
+        ScheduleDao scheduleDao = new ScheduleDao(conn);
+        CredentialDao credentialDao = new CredentialDao(conn);
         execRepo = new ExecutionDao(conn);
-        credentialDao = new CredentialDao(conn);
-        jobDataRepo = new JobDataRepository(jobRepo, scheduleRepo, execRepo,credentialDao);
-        scheduler = new JobScheduler();
+        jobDataRepo = new JobDataRepository(jobDao, scheduleDao, execRepo, credentialDao);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown() {
         if (scheduler != null) {
             scheduler.shutdown();
         }
-        if (database != null) {
-            database.close();
+        if (db != null) {
+            db.close();
         }
     }
 
@@ -70,31 +65,45 @@ class SchedulerIntegrationTest {
         Path configPath = Files.createTempFile(tempDir, "jobs-", ".yaml");
         Files.writeString(configPath, yaml);
 
-        var executor = new JobExecutor(execRepo, null);
-        var loader = new JobConfigLoader(configPath, jobDataRepo);
-        return new SchedulerService(scheduler, jobDataRepo, executor, loader);
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
+
+        var fakeVault = new FakeSecretProvider();
+        var credService = new CredentialService(fakeVault);
+        var executor = new JobExecutor(execRepo, credService);
+        scheduler = new SchedulerService(jobDataRepo, execRepo, executor);
+        return scheduler;
     }
 
     private SchedulerService createServiceWithCredentials(String yaml, CredentialService credService) throws Exception {
         Path configPath = Files.createTempFile(tempDir, "jobs-", ".yaml");
         Files.writeString(configPath, yaml);
 
+        var loader = new JobConfigLoader(configPath);
+        var configs = loader.read();
+        jobDataRepo.sync(configs);
+
         var executor = new JobExecutor(execRepo, credService);
-        var loader = new JobConfigLoader(configPath, jobDataRepo);
-        return new SchedulerService(scheduler, jobDataRepo, executor, loader);
+        scheduler = new SchedulerService(jobDataRepo, execRepo, executor);
+        return scheduler;
     }
 
     private void tickAndWait(SchedulerService service) {
         try {
             service.tick();
-            scheduler.shutdown();
-            boolean terminated = scheduler.awaitTermination(5, TimeUnit.SECONDS);
+            service.shutdown();
+            boolean terminated = service.awaitTermination(5, TimeUnit.SECONDS);
             if (!terminated) {
-                fail("Scheduler did not terminate within 5 seconds — jobs may still be running");
+                fail("Scheduler did not terminate within 5 seconds");
             }
+            // Wait for async process.onExit() callbacks to complete.
+            // Process execution is now non-blocking — threads return immediately
+            // and completion is handled via CompletableFuture on ForkJoinPool.commonPool()
+            Thread.sleep(500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            fail("Scheduler interrupted while waiting for termination", e);
+            fail("Scheduler interrupted", e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to complete tickAndWait", e);
         }
@@ -197,7 +206,6 @@ class SchedulerIntegrationTest {
         assertTrue(firstExec.isPresent());
         long firstExecId = firstExec.get().executionId();
 
-        scheduler = new JobScheduler();
         var service2 = createService("""
             jobs:
               - meta:
@@ -224,7 +232,7 @@ class SchedulerIntegrationTest {
 
     @Test
     void shouldPipeCredentialsWhenJobExecutesOnTick() throws Exception {
-        var fakeVault = new FakeVaultLifecycle();
+        var fakeVault = new FakeSecretProvider();
         fakeVault.store("smtp", Map.of(
                 "host", "smtp.gmail.com",
                 "port", "587",
@@ -276,7 +284,7 @@ class SchedulerIntegrationTest {
 
     @Test
     void shouldSkipJobOnTickWhenCredentialsMissing() throws Exception {
-        var fakeVault = new FakeVaultLifecycle();
+        var fakeVault = new FakeSecretProvider();
         var credService = new CredentialService(fakeVault);
 
         var service = createServiceWithCredentials("""
@@ -305,7 +313,8 @@ class SchedulerIntegrationTest {
         assertEquals(1, jobs.size());
 
         var lastExec = execRepo.getLastExecution("missing-creds-job");
-        assertTrue(lastExec.isEmpty(), "Job should not have executed — credentials missing");
+        assertTrue(lastExec.isPresent(), "Execution record should exist");
+        assertEquals("cancelled", lastExec.get().lastRunStatus(), "Job should be cancelled — credentials missing");
     }
 
     @Test
@@ -332,46 +341,5 @@ class SchedulerIntegrationTest {
         var lastExec = execRepo.getLastExecution("fail-job");
         assertTrue(lastExec.isPresent());
         assertEquals("failed", lastExec.get().lastRunStatus());
-    }
-
-    /**
-     * In-memory fake Vault for integration tests that need credential
-     * piping without a running Vault server.
-     */
-    static class FakeVaultLifecycle extends VaultLifecycle {
-        private final Map<String, Map<String, String>> secrets = new HashMap<>();
-
-        FakeVaultLifecycle() {
-            super();
-        }
-
-        void store(String name, Map<String, String> fields) {
-            secrets.put(name, new HashMap<>(fields));
-        }
-
-        @Override
-        public void ensureReady() {}
-
-        @Override
-        public Optional<Map<String, String>> read(String name) {
-            return Optional.ofNullable(secrets.get(name));
-        }
-
-        @Override
-        public void write(String name, Map<String, Object> fields) {
-            Map<String, String> stringFields = new HashMap<>();
-            fields.forEach((k, v) -> stringFields.put(k, v.toString()));
-            secrets.put(name, stringFields);
-        }
-
-        @Override
-        public void delete(String name) {
-            secrets.remove(name);
-        }
-
-        @Override
-        public boolean isHealthy() {
-            return true;
-        }
     }
 }

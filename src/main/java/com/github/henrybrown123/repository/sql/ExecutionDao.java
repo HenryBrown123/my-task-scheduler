@@ -6,7 +6,9 @@ import com.github.henrybrown123.model.job.execution.JobExecutionData;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.github.henrybrown123.repository.RepositoryException;
@@ -22,17 +24,15 @@ public class ExecutionDao {
         this.conn = conn;
     }
 
-    public synchronized long createExecutionRecord(String jobId, String triggeredBy, String stdoutFile, String stderrFile) {
+    public synchronized long createQueuedExecution(String jobId, String triggeredBy) {
         String sql = """
-            INSERT INTO job_executions (job_id, start_time, status, triggered_by, stdout_file, stderr_file)
-            VALUES (?, datetime('now'), 'running', ?, ?, ?)
+            INSERT INTO job_executions (job_id, start_time, status, triggered_by)
+            VALUES (?, datetime('now'), 'queued', ?)
             """;
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
             stmt.setString(2, triggeredBy);
-            stmt.setString(3, stdoutFile);
-            stmt.setString(4, stderrFile);
             stmt.executeUpdate();
 
             try (Statement idStmt = conn.createStatement()) {
@@ -43,8 +43,81 @@ public class ExecutionDao {
                 throw new RepositoryException("Failed to get execution ID for job: " + jobId, null);
             }
         } catch (SQLException e) {
-            throw new RepositoryException("Failed to start execution for job: " + jobId, e);
+            throw new RepositoryException("Failed to queue execution for job: " + jobId, e);
         }
+    }
+
+    public synchronized void updateExecutionStatus(long executionId, String status) {
+        String sql = """
+            UPDATE job_executions
+            SET status = ?, start_time = datetime('now')
+            WHERE id = ?
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, status);
+            stmt.setLong(2, executionId);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to update execution status: " + executionId, e);
+        }
+    }
+
+    public synchronized void attachLogFiles(long executionId, String stdoutFile, String stderrFile) {
+        String sql = """
+            UPDATE job_executions
+            SET stdout_file = ?, stderr_file = ?
+            WHERE id = ?
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, stdoutFile);
+            stmt.setString(2, stderrFile);
+            stmt.setLong(3, executionId);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to attach log files to execution: " + executionId, e);
+        }
+    }
+
+    /**
+     * Fetches the latest execution for every job in a single query.
+     * Used by the tick to merge fresh execution state with cached config.
+     */
+    public synchronized Map<String, JobExecutionData> getAllLatestExecutions() {
+        String sql = """
+            SELECT e.id, e.job_id, e.start_time, e.end_time, e.status,
+                   e.exit_code, e.stdout_file, e.stderr_file
+            FROM job_executions e
+            INNER JOIN (
+                SELECT job_id, MAX(id) AS max_id
+                FROM job_executions
+                GROUP BY job_id
+            ) latest ON e.id = latest.max_id
+            """;
+
+        Map<String, JobExecutionData> results = new HashMap<>();
+
+        try (Statement stmt = conn.createStatement()) {
+            ResultSet rs = stmt.executeQuery(sql);
+            while (rs.next()) {
+                String jobId = rs.getString("job_id");
+                results.put(jobId, new JobExecutionData(
+                        rs.getLong("id"),
+                        Status.fromString(rs.getString("status")),
+                        SqliteDataType.toLocalDateTime(rs.getTimestamp("start_time")),
+                        SqliteDataType.toLocalDateTime(rs.getTimestamp("end_time")),
+                        rs.getString("status"),
+                        rs.getString("stdout_file"),
+                        rs.getString("stderr_file"),
+                        null
+                ));
+            }
+        } catch (SQLException e) {
+            throw new RepositoryException("Failed to fetch latest executions", e);
+        }
+
+        return results;
     }
 
     public synchronized void setExecutionAsCompleted(long executionId, String status, int exitCode) {
