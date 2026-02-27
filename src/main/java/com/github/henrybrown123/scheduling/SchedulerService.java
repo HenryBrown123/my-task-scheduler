@@ -1,7 +1,7 @@
 package com.github.henrybrown123.scheduling;
 
 import com.github.henrybrown123.configuration.AppConfig;
-import com.github.henrybrown123.configuration.JobConfigSync;
+import com.github.henrybrown123.model.job.Status;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.model.JobData;
 import com.github.henrybrown123.repository.JobDataRepository;
@@ -17,6 +17,13 @@ import java.util.concurrent.*;
 
 /**
  * Main scheduling service that polls for due jobs and executes them.
+ *
+ * <p>Process concurrency is limited by counting active (queued + running)
+ * executions from the database. The thread pool handles lightweight job
+ * setup only — actual process execution is async via {@code Process.onExit()}.
+ *
+ * <p>Config syncing is handled separately by {@code JobConfigSync} via a
+ * file watcher — this class only concerns itself with scheduling.
  */
 public class SchedulerService {
     private static final Logger log = LoggerFactory.getLogger(SchedulerService.class);
@@ -25,8 +32,8 @@ public class SchedulerService {
     private final JobDataRepository jobDataRepository;
     private final ExecutionDao executionDao;
     private final JobExecutor jobExecutor;
-    private final JobConfigSync configSync;
     private final long pollIntervalMs;
+    private final long maxConcurrentProcesses;
 
     private volatile boolean running = false;
     private Thread schedulerThread;
@@ -34,15 +41,14 @@ public class SchedulerService {
     public SchedulerService(
             JobDataRepository jobDataRepository,
             ExecutionDao executionDao,
-            JobExecutor jobExecutor,
-            JobConfigSync configSync
+            JobExecutor jobExecutor
     ) {
         this.executor = Executors.newScheduledThreadPool(AppConfig.scheduling().poolSize());
         this.jobDataRepository = jobDataRepository;
         this.executionDao = executionDao;
         this.jobExecutor = jobExecutor;
-        this.configSync = configSync;
         this.pollIntervalMs = AppConfig.scheduling().pollIntervalMs();
+        this.maxConcurrentProcesses = AppConfig.scheduling().maxConcurrentProcesses();
     }
 
     public void start() {
@@ -64,17 +70,32 @@ public class SchedulerService {
     }
 
     public void tick() {
-        configSync.syncIfChanged();
+        List<JobData> allJobs = jobDataRepository.getAll();
 
-        List<JobData> dueJobs = jobDataRepository.getAll().stream()
+        long activeCount = allJobs.stream()
+                .filter(job -> job.execution() != null)
+                .filter(job -> job.execution().status() == Status.QUEUED
+                            || job.execution().status() == Status.RUNNING)
+                .count();
+
+        long capacity = maxConcurrentProcesses - activeCount;
+
+        if (capacity <= 0) {
+            log.debug("At max capacity ({} active), skipping scheduling", activeCount);
+            return;
+        }
+
+        List<JobData> dueJobs = allJobs.stream()
                 .filter(JobData::isDue)
                 .filter(JobData::isIdle)
+                .limit(capacity)
                 .toList();
 
         dueJobs.forEach(this::scheduleJob);
 
         if (!dueJobs.isEmpty()) {
-            log.info("Scheduled {} due job(s)", dueJobs.size());
+            log.info("Scheduled {} due job(s) ({} active, {} capacity)",
+                    dueJobs.size(), activeCount, capacity);
         }
     }
 
@@ -88,17 +109,16 @@ public class SchedulerService {
                 job.getNextExecutionTime()).getSeconds();
 
         executor.schedule(
-                wrappedJob(jobId, jobName, execId, () -> jobExecutor.runJob(job, execId)),
-                delayInSeconds,
+                wrappedJob(jobId, jobName, () -> jobExecutor.runJob(job, execId)),
+                Math.max(0, delayInSeconds),
                 TimeUnit.SECONDS
         );
     }
 
-    private Runnable wrappedJob(String jobId, String jobName, long execId, Runnable job) {
+    private Runnable wrappedJob(String jobId, String jobName, Runnable job) {
         return () -> {
             MDC.put("jobName", "[" + jobName + "]");
             MDC.put("jobId", jobId);
-            executionDao.updateExecutionStatus(execId, "running");
             try {
                 job.run();
             } finally {
