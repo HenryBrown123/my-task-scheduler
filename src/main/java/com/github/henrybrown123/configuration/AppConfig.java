@@ -1,6 +1,7 @@
 package com.github.henrybrown123.configuration;
 
 import com.github.henrybrown123.database.DbConfig;
+import com.github.henrybrown123.monitoring.MonitoringConfig;
 import com.github.henrybrown123.scheduling.SchedulingConfig;
 import com.github.henrybrown123.security.SecurityConfig;
 
@@ -31,6 +32,7 @@ public class AppConfig {
     private final SecurityConfig vault;
     private final DbConfig db;
     private final SchedulingConfig scheduling;
+    private final MonitoringConfig monitoring;
 
     /**
      * Maps the application properties into feature-specific config records.
@@ -47,6 +49,7 @@ public class AppConfig {
         this.vault = SecurityConfig.fromProps(appProperties);
         this.db = DbConfig.fromProps(appProperties);
         this.scheduling = SchedulingConfig.fromProps(appProperties);
+        this.monitoring = MonitoringConfig.fromProps(appProperties);
 
         if (!appProperties.errors().isEmpty()) {
             throw new RuntimeException("Invalid config, failed to parse .properties file(s):\n  "
@@ -74,4 +77,7 @@ public class AppConfig {
 
     /** @return job scheduling settings (pool size, poll interval, logs directory). */
     public static SchedulingConfig scheduling() { return get().scheduling; }
+
+    /** @return monitoring settings (snapshot interval in seconds). */
+    public static MonitoringConfig monitoring() { return get().monitoring; }
 }
