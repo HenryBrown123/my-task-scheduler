@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -47,20 +48,20 @@ class JobExecutorTest {
     }
 
     @Test
-    void shouldCompleteExecution() {
+    void shouldCompleteExecution() throws Exception {
         JobData job = createJob("test-job", "echo hello");
 
-        executor.runJob(job, EXEC_ID);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         verify(execRepo).attachLogFiles(eq(EXEC_ID), anyString(), anyString());
         verify(execRepo).setExecutionAsCompleted(EXEC_ID, "complete", 0);
     }
 
     @Test
-    void shouldRecordFailedExecution() {
+    void shouldRecordFailedExecution() throws Exception {
         JobData job = createJob("fail-job", "exit 1");
 
-        executor.runJob(job, EXEC_ID);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         verify(execRepo).setExecutionAsCompleted(EXEC_ID, "failed", 1);
     }
@@ -84,7 +85,7 @@ class JobExecutorTest {
                 ))
         ));
 
-        executor.runJob(job, EXEC_ID);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         Path stdout = findLogFile("creds-job", "stdout");
         assertNotNull(stdout);
@@ -98,7 +99,7 @@ class JobExecutorTest {
     void shouldCaptureStdout() throws Exception {
         JobData job = createJob("output-job", "echo 'test output'");
 
-        executor.runJob(job, EXEC_ID);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         Path stdout = findLogFile("output-job", "stdout");
         assertNotNull(stdout, "stdout log file should exist");
@@ -109,7 +110,7 @@ class JobExecutorTest {
     void shouldCaptureStderr() throws Exception {
         JobData job = createJob("error-job", "echo 'error message' >&2");
 
-        executor.runJob(job, EXEC_ID);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         Path stderr = findLogFile("error-job", "stderr");
         assertNotNull(stderr, "stderr log file should exist");
@@ -117,10 +118,10 @@ class JobExecutorTest {
     }
 
     @Test
-    void shouldCompleteWithFailedOnIOError() {
+    void shouldCompleteWithFailedOnIOError() throws Exception {
         JobData job = createJob("bad-cmd", "/nonexistent/file");
 
-        executor.runJob(job, EXEC_ID);
+        executor.runJob(job, EXEC_ID).get(5, TimeUnit.SECONDS);
 
         verify(execRepo).setExecutionAsCompleted(EXEC_ID, "failed", 127);
     }
