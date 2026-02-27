@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS config_files(
 );
 
 -- Job definitions table, loaded from config file
-CREATE TABLE IF NOT EXISTS jobs (
-                                    id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS jobs ( id TEXT PRIMARY KEY,
+                                    seq INTEGER NOT NULL,
                                     name TEXT NOT NULL,
                                     description TEXT,
                                     priority TEXT,
