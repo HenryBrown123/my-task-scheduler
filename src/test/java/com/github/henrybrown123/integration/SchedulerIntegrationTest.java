@@ -2,7 +2,6 @@ package com.github.henrybrown123.integration;
 
 import com.github.henrybrown123.configuration.AppConfig;
 import com.github.henrybrown123.configuration.JobConfigLoader;
-import com.github.henrybrown123.configuration.JobConfigSync;
 import com.github.henrybrown123.database.DatabaseProvider;
 import com.github.henrybrown123.scheduling.execution.JobExecutor;
 import com.github.henrybrown123.repository.sql.CredentialDao;
@@ -12,7 +11,7 @@ import com.github.henrybrown123.repository.sql.ScheduleDao;
 import com.github.henrybrown123.repository.JobDataRepository;
 import com.github.henrybrown123.scheduling.SchedulerService;
 import com.github.henrybrown123.security.CredentialService;
-import com.github.henrybrown123.security.SecretProvider;
+import com.github.henrybrown123.testutil.FakeSecretProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,9 +20,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -72,13 +69,10 @@ class SchedulerIntegrationTest {
         var configs = loader.read();
         jobDataRepo.sync(configs);
 
-        // Create a JobConfigSync that points at this temp file
-        var configSync = new TestConfigSync(configPath, jobDataRepo);
-
         var fakeVault = new FakeSecretProvider();
         var credService = new CredentialService(fakeVault);
         var executor = new JobExecutor(execRepo, credService);
-        scheduler = new SchedulerService(jobDataRepo, execRepo, executor, configSync);
+        scheduler = new SchedulerService(jobDataRepo, execRepo, executor);
         return scheduler;
     }
 
@@ -90,10 +84,8 @@ class SchedulerIntegrationTest {
         var configs = loader.read();
         jobDataRepo.sync(configs);
 
-        var configSync = new TestConfigSync(configPath, jobDataRepo);
-
         var executor = new JobExecutor(execRepo, credService);
-        scheduler = new SchedulerService(jobDataRepo, execRepo, executor, configSync);
+        scheduler = new SchedulerService(jobDataRepo, execRepo, executor);
         return scheduler;
     }
 
@@ -105,6 +97,10 @@ class SchedulerIntegrationTest {
             if (!terminated) {
                 fail("Scheduler did not terminate within 5 seconds");
             }
+            // Wait for async process.onExit() callbacks to complete.
+            // Process execution is now non-blocking — threads return immediately
+            // and completion is handled via CompletableFuture on ForkJoinPool.commonPool()
+            Thread.sleep(500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             fail("Scheduler interrupted", e);
@@ -345,44 +341,5 @@ class SchedulerIntegrationTest {
         var lastExec = execRepo.getLastExecution("fail-job");
         assertTrue(lastExec.isPresent());
         assertEquals("failed", lastExec.get().lastRunStatus());
-    }
-
-    /**
-     * Test-only JobConfigSync that takes a custom path instead
-     * of reading from AppConfig.
-     */
-    static class TestConfigSync extends JobConfigSync {
-        TestConfigSync(Path configPath, JobDataRepository jobDataRepo) {
-            super(jobDataRepo);
-            // The parent reads from AppConfig, but for tests we pre-sync
-            // in createService so syncIfChanged is effectively a no-op
-            // on unchanged files.
-        }
-    }
-
-    /**
-     * In-memory fake secret provider for integration tests.
-     */
-    static class FakeSecretProvider implements SecretProvider {
-        private final Map<String, Map<String, String>> secrets = new HashMap<>();
-
-        void store(String name, Map<String, String> fields) {
-            secrets.put(name, new HashMap<>(fields));
-        }
-
-        @Override
-        public Optional<Map<String, String>> read(String name) {
-            return Optional.ofNullable(secrets.get(name));
-        }
-
-        @Override
-        public void write(String name, Map<String, Object> fields) {
-            Map<String, String> stringFields = new HashMap<>();
-            fields.forEach((k, v) -> stringFields.put(k, v.toString()));
-            secrets.put(name, stringFields);
-        }
-
-        @Override public void delete(String name) { secrets.remove(name); }
-        @Override public boolean isAvailable() { return true; }
     }
 }
