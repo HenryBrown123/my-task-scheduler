@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -50,19 +51,20 @@ class ConfigLoaderTest {
             """);
 
         JobConfigLoader loader = new JobConfigLoader(configPath);
-        List<JobConfig> configs = loader.read();
+        Map<Integer, JobConfig> configs = loader.read();
 
         assertEquals(1, configs.size());
-        assertEquals("test-job", configs.get(0).meta().id());
-        assertEquals("Test Job", configs.get(0).meta().name());
-        assertEquals("high", configs.get(0).meta().priority());
-        assertEquals(List.of("test"), configs.get(0).meta().tags());
-        assertEquals(ExecutionType.CMD, configs.get(0).command().type());
-        assertEquals("echo hello", configs.get(0).command().command());
-        assertEquals(Interpreter.BASH, configs.get(0).command().interpreter());
-        assertInstanceOf(SimpleSchedule.class, configs.get(0).schedule());
-        assertEquals("5m", ((SimpleSchedule) configs.get(0).schedule()).interval());
-        assertEquals(LocalDate.of(2025, 1, 1), ((SimpleSchedule) configs.get(0).schedule()).startDate());
+        JobConfig config = configs.get(1); // 1-indexed
+        assertEquals("test-job", config.meta().id());
+        assertEquals("Test Job", config.meta().name());
+        assertEquals("high", config.meta().priority());
+        assertEquals(List.of("test"), config.meta().tags());
+        assertEquals(ExecutionType.CMD, config.command().type());
+        assertEquals("echo hello", config.command().command());
+        assertEquals(Interpreter.BASH, config.command().interpreter());
+        assertInstanceOf(SimpleSchedule.class, config.schedule());
+        assertEquals("5m", ((SimpleSchedule) config.schedule()).interval());
+        assertEquals(LocalDate.of(2025, 1, 1), ((SimpleSchedule) config.schedule()).startDate());
     }
 
     @Test
@@ -98,11 +100,11 @@ class ConfigLoaderTest {
             """);
 
         JobConfigLoader loader = new JobConfigLoader(configPath);
-        List<JobConfig> configs = loader.read();
+        Map<Integer, JobConfig> configs = loader.read();
 
         assertEquals(2, configs.size());
-        assertEquals("job-1", configs.get(0).meta().id());
-        assertEquals("job-2", configs.get(1).meta().id());
+        assertEquals("job-1", configs.get(1).meta().id()); // 1-indexed
+        assertEquals("job-2", configs.get(2).meta().id());
     }
 
     @Test
@@ -135,7 +137,7 @@ class ConfigLoaderTest {
         );
 
         var loader = new JobConfigLoader(filePath);
-        var job = loader.read().getFirst();
+        var job = loader.read().get(1); // 1-indexed
 
         assertEquals("health-check-test", job.meta().id());
         assertInstanceOf(SimpleSchedule.class, job.schedule());
