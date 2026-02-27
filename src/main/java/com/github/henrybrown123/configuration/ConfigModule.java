@@ -8,6 +8,7 @@ import com.github.henrybrown123.repository.PersistenceModule;
  * <p>Depends on: {@link PersistenceModule}.
  * <p>Owns: JobConfigSync.
  * <p>Calls forceSync on construction to seed the database.
+ * Call {@link #start()} to begin watching for file changes.
  */
 public record ConfigModule(JobConfigSync configSync) {
     public ConfigModule(PersistenceModule persistence) {
@@ -18,5 +19,9 @@ public record ConfigModule(JobConfigSync configSync) {
         JobConfigSync sync = new JobConfigSync(persistence.jobDataRepo());
         sync.forceSync();
         return sync;
+    }
+
+    public void start() {
+        configSync.startWatching();
     }
 }

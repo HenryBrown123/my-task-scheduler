@@ -4,14 +4,15 @@ import com.github.henrybrown123.repository.JobDataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.Path;
+import java.io.IOException;
+import java.nio.file.*;
 
 /**
- * Watches the YAML jobs config file and syncs changes to the database.
- * Uses last-modified timestamp to avoid re-parsing on every tick.
+ * Watches the YAML jobs config file for changes and syncs to the database.
+ * Runs a daemon thread using {@link WatchService} — no polling required.
  *
  * <p>Call {@link #forceSync()} on startup for the initial load.
- * Call {@link #syncIfChanged()} on each scheduler tick.
+ * Call {@link #startWatching()} to begin monitoring for changes.
  */
 public class JobConfigSync {
     private static final Logger log = LoggerFactory.getLogger(JobConfigSync.class);
@@ -19,7 +20,6 @@ public class JobConfigSync {
     private final Path configPath;
     private final JobDataRepository jobDataRepo;
     private final JobConfigLoader loader;
-    private long lastModified = 0;
 
     public JobConfigSync(JobDataRepository jobDataRepo) {
         this.configPath = AppConfig.scheduling().jobsFile();
@@ -27,25 +27,55 @@ public class JobConfigSync {
         this.loader = new JobConfigLoader(configPath);
     }
 
-    /**
-     * Re-reads and syncs config only if the file has changed since last check.
-     * No-op if the file hasn't been touched.
-     */
-    public void syncIfChanged() {
-        long modified = configPath.toFile().lastModified();
-        if (modified == lastModified) return;
-
-        lastModified = modified;
+    public void forceSync() {
         doSync();
     }
 
-    /**
-     * Forces a sync regardless of file modification time.
-     * Use on startup to guarantee initial load.
-     */
-    public void forceSync() {
-        lastModified = 0;
-        syncIfChanged();
+    public void startWatching() {
+        Thread watchThread = new Thread(this::watch, "ConfigFileWatcher");
+        watchThread.setDaemon(true);
+        watchThread.start();
+    }
+
+    private void watch() {
+        try (WatchService watcher = registerWatcher()) {
+            log.info("Watching config file: {}", configPath);
+            processEvents(watcher);
+        } catch (IOException e) {
+            log.error("Failed to start config file watcher: {}", e.getMessage());
+        }
+    }
+
+    private WatchService registerWatcher() throws IOException {
+        WatchService watcher = FileSystems.getDefault().newWatchService();
+        configPath.getParent().register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
+        return watcher;
+    }
+
+    private void processEvents(WatchService watcher) {
+        while (true) {
+            try {
+                WatchKey key = watcher.take();
+
+                if (isConfigFileEvent(key)) {
+                    log.info("Config file changed, resyncing...");
+                    doSync();
+                }
+
+                if (!key.reset()) {
+                    log.warn("Watch key invalid — directory may have been deleted");
+                    break;
+                }
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
+    }
+
+    private boolean isConfigFileEvent(WatchKey key) {
+        return key.pollEvents().stream()
+                .map(event -> (Path) event.context())
+                .anyMatch(changed -> changed.equals(configPath.getFileName()));
     }
 
     private void doSync() {
