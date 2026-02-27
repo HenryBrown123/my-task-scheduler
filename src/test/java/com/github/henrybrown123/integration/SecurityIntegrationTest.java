@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -125,13 +126,12 @@ class SecurityIntegrationTest {
     }
 
     @Test
-    void shouldSkipJobWhenCredentialsMissing() {
+    void shouldSkipJobWhenCredentialsMissing() throws Exception {
         var job = jobWith("skip-job", "echo should-not-run",
                 cred("test-smtp", ESecretType.SMTP));
 
         long execId = executionDao.createQueuedExecution("skip-job", "test");
-        executionDao.updateExecutionStatus(execId, "running");
-        executor.runJob(job, execId);
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         var lastExec = executionDao.getLastExecution("skip-job");
         assertTrue(lastExec.isPresent(), "Execution record should exist");
@@ -147,8 +147,7 @@ class SecurityIntegrationTest {
                 cred("test-smtp", ESecretType.SMTP));
 
         long execId = executionDao.createQueuedExecution("pipe-job", "test");
-        executionDao.updateExecutionStatus(execId, "running");
-        executor.runJob(job, execId);
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         Path stdout = findLogFile("pipe-job", "stdout");
         assertNotNull(stdout, "stdout log file should exist");
@@ -166,8 +165,7 @@ class SecurityIntegrationTest {
         var job = jobWith("no-creds-job", "cat");
 
         long execId = executionDao.createQueuedExecution("no-creds-job", "test");
-        executionDao.updateExecutionStatus(execId, "running");
-        executor.runJob(job, execId);
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         var lastExec = executionDao.getLastExecution("no-creds-job");
         assertTrue(lastExec.isPresent(), "cat with no stdin should still complete");
@@ -179,15 +177,14 @@ class SecurityIntegrationTest {
     }
 
     @Test
-    void shouldExecuteWithCredentialsAndCompleteSuccessfully() {
+    void shouldExecuteWithCredentialsAndCompleteSuccessfully() throws Exception {
         credentialService.store("test-smtp", ESecretType.SMTP, smtpFields());
 
         var job = jobWith("success-job", "echo done",
                 cred("test-smtp", ESecretType.SMTP));
 
         long execId = executionDao.createQueuedExecution("success-job", "test");
-        executionDao.updateExecutionStatus(execId, "running");
-        executor.runJob(job, execId);
+        executor.runJob(job, execId).get(5, TimeUnit.SECONDS);
 
         var lastExec = executionDao.getLastExecution("success-job");
         assertTrue(lastExec.isPresent());
